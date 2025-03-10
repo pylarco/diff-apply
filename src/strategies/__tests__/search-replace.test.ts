@@ -1,4 +1,6 @@
-import { applyDiff, getToolDescription } from "../search-replace.service"
+import { searchReplaceService } from "../../../dist"
+
+const { applyDiff, getToolDescription } = searchReplaceService.searchReplaceService
 
 describe("SearchReplaceDiffStrategy", () => {
   describe("exact matching", () => {

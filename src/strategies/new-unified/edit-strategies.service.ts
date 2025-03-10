@@ -7,7 +7,16 @@ import type { EditResult, Hunk } from "./types"
 import Alvamind from 'alvamind'
 import { searchStrategiesService } from "./search-strategies.service"
 
-export const editStrategiesService = Alvamind({ name: 'edit-strategies.service' })
+interface EditStrategiesService {
+  editStrategiesService: {
+    applyContextMatching: (hunk: Hunk, content: string[], matchPosition: number) => EditResult;
+    applyDMP: (hunk: Hunk, content: string[], matchPosition: number) => EditResult;
+    applyGitFallback: (hunk: Hunk, content: string[]) => Promise<EditResult>;
+    applyEdit: (hunk: Hunk, content: string[], matchPosition: number, confidence: number, confidenceThreshold?: number) => Promise<EditResult>;
+  }
+}
+
+export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'edit-strategies.service' })
   .use(searchStrategiesService)
   .derive(({ searchStrategiesService: { validateEditResult } }) => ({
     editStrategiesService: {

@@ -4,9 +4,24 @@ import { distance } from "fastest-levenshtein";
 import Alvamind from 'alvamind';
 import { textService } from "../utils/extract-text.service";
 
+interface MultiSearchReplaceService {
+  multiSearchReplaceService: {
+    getSimilarity(original: string, search: string): number;
+    getToolDescription(args: { cwd: string; toolOptions?: { [key: string]: string } }): string;
+    applyDiff(
+      originalContent: string,
+      diffContent: string,
+      fuzzyThreshold?: number,
+      bufferLines?: number,
+      _paramStartLine?: number,
+      _paramEndLine?: number
+    ): DiffResult;
+  };
+}
+
 const BUFFER_LINES = 40; // Number of extra context lines to show before and after matches
 
-export const multiSearchReplaceService = Alvamind({ name: 'multi-search-replace.service' })
+export const multiSearchReplaceService: MultiSearchReplaceService = Alvamind({ name: 'multi-search-replace.service' })
   .use(textService)
   .derive(({ textService: { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers } }) => ({
     multiSearchReplaceService: {

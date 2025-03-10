@@ -1,4 +1,7 @@
-import { applyContextMatching, applyDMP, applyGitFallback } from "../edit-strategies.service"
+
+import { editStrategiesService } from "../../../../dist/strategies/new-unified/edit-strategies.service"
+const { applyContextMatching, applyDMP, applyGitFallback } = editStrategiesService.editStrategiesService
+
 import { Hunk } from "../types"
 
 const testCases = [

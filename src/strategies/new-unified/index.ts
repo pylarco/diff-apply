@@ -4,7 +4,25 @@ import Alvamind from 'alvamind';
 import { editStrategiesService } from "./edit-strategies.service";
 import { searchStrategiesService } from "./search-strategies.service";
 
-export const newUnifiedDiffStrategyService = Alvamind({ name: 'new-unified-diff-strategy.service' })
+interface NewUnifiedDiffStrategyService {
+  newUnifiedDiffStrategyService: {
+    confidenceThreshold: number;
+    create: (confidenceThreshold?: number) => {
+      confidenceThreshold: number;
+      parseUnifiedDiff: (diff: string) => Diff;
+      getToolDescription: (args: {
+        cwd: string;
+        toolOptions?: {
+          [key: string]: string;
+        };
+      }) => string;
+      splitHunk: (hunk: Hunk) => Hunk[];
+      applyDiff: ({ originalContent, diffContent, startLine, endLine, }: ApplyDiffParams) => Promise<DiffResult>;
+    };
+  }
+}
+
+export const newUnifiedDiffStrategyService: NewUnifiedDiffStrategyService = Alvamind({ name: 'new-unified-diff-strategy.service' })
   .use(editStrategiesService)
   .use(searchStrategiesService)
   .derive(({ editStrategiesService: { applyEdit }, searchStrategiesService: { findBestMatch, prepareSearchString } }) => ({

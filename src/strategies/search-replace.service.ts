@@ -4,9 +4,22 @@ import Alvamind from 'alvamind';
 import { textService } from "../utils/extract-text.service";
 import { ApplyDiffParams, DiffResult } from "../types";
 
+interface SearchReplaceService {
+  searchReplaceService: {
+    getSimilarity: (original: string, search: string) => number;
+    getToolDescription: (args: {
+      cwd: string;
+      toolOptions?: {
+        [key: string]: string;
+      };
+    }) => string;
+    applyDiff: ({ originalContent, diffContent, fuzzyThreshold, bufferLines, startLine, endLine, }: ApplyDiffParams) => DiffResult;
+  }
+}
+
 const BUFFER_LINES = 20; // Number of extra context lines to show before and after matches
 
-export const searchReplaceService = Alvamind({ name: 'search-replace.service' })
+export const searchReplaceService: SearchReplaceService = Alvamind({ name: 'search-replace.service' })
   .use(textService)
   .derive(({ textService: { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers } }) => ({
     searchReplaceService: {
