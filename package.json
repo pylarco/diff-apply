@@ -1,0 +1,64 @@
+{
+  "name": "diff-apply-alvamind",
+  "version": "1.0.0",
+  "description": "A utility for applying file diffs programmatically",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/diff-match-patch": "^1.0.36",
+    "@types/tmp": "^0.2.6"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@types/diff": "^7.0.1",
+    "@types/string-similarity": "^4.0.2",
+    "alvamind": "^1.0.13",
+    "alvamind-tools": "^1.0.23",
+    "diff": "^7.0.0",
+    "diff-match-patch": "^1.0.5",
+    "fastest-levenshtein": "^1.0.16",
+    "simple-git": "^3.27.0",
+    "string-similarity": "^4.0.4",
+    "tmp": "^0.2.3"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json || true",
+    "prepublishOnly": "npm run build",
+    "test": "bun test",
+    "source": "generate-source output=documentation.md exclude=dist/,node_modules/,.git/",
+    "commit": "commit",
+    "clean": "clean",
+    "split-code": "split-code source=combined.ts markers=src/,lib/ outputDir=./output",
+    "publish-npm": "publish-npm patch"
+  },
+  "keywords": [
+    "diff",
+    "patch",
+    "file",
+    "text",
+    "diff-apply"
+  ],
+  "author": "Alvamind",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alvamind/diff-apply-alvamind.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

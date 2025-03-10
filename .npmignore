@@ -1,0 +1,30 @@
+# Source files
+src/
+
+# Tests
+__tests__/
+*.test.ts
+*.spec.ts
+jest.config.js
+
+# Development configs
+.gitignore
+.github/
+tsconfig.json
+.eslintrc
+.eslintignore
+.prettierrc
+.prettierignore
+
+# Editor directories
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Misc
+node_modules/
+npm-debug.log
+yarn-error.log
+coverage/
+.DS_Store
