@@ -1,17 +1,15 @@
 import { diff_match_patch } from "diff-match-patch"
-import * as path from "path"
-import simpleGit, { SimpleGit } from "simple-git"
-import * as tmp from "tmp"
-import * as fs from "fs"
 import type { EditResult, Hunk } from "./types"
 import Alvamind from 'alvamind'
 import { searchStrategiesService } from "./search-strategies.service"
 
 interface EditStrategiesService {
   editStrategiesService: {
+    applyPatch: (originalContent: string, searchContent: string, replaceContent: string) => string;
+    applyThreeWayMerge: (baseContent: string, ourContent: string, theirContent: string) => string;
     applyContextMatching: (hunk: Hunk, content: string[], matchPosition: number) => EditResult;
     applyDMP: (hunk: Hunk, content: string[], matchPosition: number) => EditResult;
-    applyGitFallback: (hunk: Hunk, content: string[]) => Promise<EditResult>;
+    applyInMemoryFallback: (hunk: Hunk, content: string[]) => Promise<EditResult>;
     applyEdit: (hunk: Hunk, content: string[], matchPosition: number, confidence: number, confidenceThreshold?: number) => Promise<EditResult>;
   }
 }
@@ -20,6 +18,59 @@ export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'ed
   .use(searchStrategiesService)
   .derive(({ searchStrategiesService: { validateEditResult } }) => ({
     editStrategiesService: {
+
+      applyPatch: (originalContent: string, searchContent: string, replaceContent: string): string => {
+        try {
+          const dmp = new diff_match_patch();
+
+          // First, check if the search content exists in the original content
+          const searchIndex = originalContent.indexOf(searchContent);
+          if (searchIndex === -1) {
+            // If search content isn't found, return original content unchanged
+            return originalContent;
+          }
+
+          // Create a patch from search content to replace content
+          const patch = dmp.patch_make(searchContent, replaceContent);
+
+          // Apply the patch to the original content
+          const [result, appliedPatches] = dmp.patch_apply(patch, originalContent);
+
+          // Check if all patches were applied successfully
+          const success = appliedPatches.every(Boolean);
+
+          return success ? result : originalContent;
+        } catch (error) {
+          console.error("In-memory patch application failed:", error);
+          return originalContent;
+        }
+      },
+
+      applyThreeWayMerge: (baseContent: string, ourContent: string, theirContent: string): string => {
+        try {
+          const dmp = new diff_match_patch();
+
+          // Check if base content exists in their content
+          if (!theirContent.includes(baseContent)) {
+            return theirContent; // Return unchanged if base content not found
+          }
+
+          // Create patches
+          const ourPatch = dmp.patch_make(baseContent, ourContent);
+          const theirPatch = dmp.patch_make(baseContent, theirContent);
+
+          // Apply patches sequentially
+          const [intermediateResult] = dmp.patch_apply(ourPatch, baseContent);
+          const [finalResult, appliedPatches] = dmp.patch_apply(theirPatch, intermediateResult);
+
+          const success = appliedPatches.every(Boolean);
+          return success ? finalResult : theirContent;
+        } catch (error) {
+          console.error("In-memory three-way merge failed:", error);
+          return theirContent;
+        }
+      }
+      ,
 
       // Context matching edit strategy
       applyContextMatching: (hunk: Hunk, content: string[], matchPosition: number): EditResult => {
@@ -140,119 +191,64 @@ export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'ed
         }
       },
 
-      // Git fallback strategy that works with full content
-      applyGitFallback: async (hunk: Hunk, content: string[]): Promise<EditResult> => {
-        let tmpDir: tmp.DirResult | undefined
-
+      // In-memory fallback strategy (replacing the Git-based one)
+      applyInMemoryFallback: async (hunk: Hunk, content: string[]): Promise<EditResult> => {
         try {
-          tmpDir = tmp.dirSync({ unsafeCleanup: true })
-          const git: SimpleGit = simpleGit(tmpDir.name)
-
-          await git.init()
-          await git.addConfig("user.name", "Temp")
-          await git.addConfig("user.email", "temp@example.com")
-
-          const filePath = path.join(tmpDir.name, "file.txt")
-
+          // Extract the search and replace blocks from the hunk
           const searchLines = hunk.changes
             .filter((change) => change.type === "context" || change.type === "remove")
-            .map((change) => change.originalLine || change.indent + change.content)
+            .map((change) => change.originalLine || (change.indent || "") + change.content);
 
           const replaceLines = hunk.changes
             .filter((change) => change.type === "context" || change.type === "add")
-            .map((change) => change.originalLine || change.indent + change.content)
+            .map((change) => change.originalLine || (change.indent || "") + change.content);
 
-          const searchText = searchLines.join("\n")
-          const replaceText = replaceLines.join("\n")
-          const originalText = content.join("\n")
+          const searchText = searchLines.join("\n");
+          const replaceText = replaceLines.join("\n");
+          const originalText = content.join("\n");
 
-          try {
-            fs.writeFileSync(filePath, originalText)
-            await git.add("file.txt")
-            const originalCommit = await git.commit("original")
-            console.log("Strategy 1 - Original commit:", originalCommit.commit)
-
-            fs.writeFileSync(filePath, searchText)
-            await git.add("file.txt")
-            const searchCommit1 = await git.commit("search")
-            console.log("Strategy 1 - Search commit:", searchCommit1.commit)
-
-            fs.writeFileSync(filePath, replaceText)
-            await git.add("file.txt")
-            const replaceCommit = await git.commit("replace")
-            console.log("Strategy 1 - Replace commit:", replaceCommit.commit)
-
-            console.log("Strategy 1 - Attempting checkout of:", originalCommit.commit)
-            await git.raw(["checkout", originalCommit.commit])
-            try {
-              console.log("Strategy 1 - Attempting cherry-pick of:", replaceCommit.commit)
-              await git.raw(["cherry-pick", "--minimal", replaceCommit.commit])
-
-              const newText = fs.readFileSync(filePath, "utf-8")
-              const newLines = newText.split("\n")
-              return {
-                confidence: 1,
-                result: newLines,
-                strategy: "git-fallback",
-              }
-            } catch (cherryPickError) {
-              console.error("Strategy 1 failed with merge conflict")
-            }
-          } catch (error) {
-            console.error("Strategy 1 failed:", error)
+          // Check if the search content exists in the original content
+          if (!originalText.includes(searchText)) {
+            return {
+              confidence: 0,
+              result: content,
+              strategy: "in-memory-fallback"
+            };
           }
 
-          try {
-            await git.init()
-            await git.addConfig("user.name", "Temp")
-            await git.addConfig("user.email", "temp@example.com")
+          // Try direct patch application first
+          let result = self.applyPatch(originalText, searchText, replaceText);
 
-            fs.writeFileSync(filePath, searchText)
-            await git.add("file.txt")
-            const searchCommit = await git.commit("search")
-            const searchHash = searchCommit.commit.replace(/^HEAD /, "")
-            console.log("Strategy 2 - Search commit:", searchHash)
-
-            fs.writeFileSync(filePath, replaceText)
-            await git.add("file.txt")
-            const replaceCommit = await git.commit("replace")
-            const replaceHash = replaceCommit.commit.replace(/^HEAD /, "")
-            console.log("Strategy 2 - Replace commit:", replaceHash)
-
-            console.log("Strategy 2 - Attempting checkout of:", searchHash)
-            await git.raw(["checkout", searchHash])
-            fs.writeFileSync(filePath, originalText)
-            await git.add("file.txt")
-            const originalCommit2 = await git.commit("original")
-            console.log("Strategy 2 - Original commit:", originalCommit2.commit)
-
-            try {
-              console.log("Strategy 2 - Attempting cherry-pick of:", replaceHash)
-              await git.raw(["cherry-pick", "--minimal", replaceHash])
-
-              const newText = fs.readFileSync(filePath, "utf-8")
-              const newLines = newText.split("\n")
-              return {
-                confidence: 1,
-                result: newLines,
-                strategy: "git-fallback",
-              }
-            } catch (cherryPickError) {
-              console.error("Strategy 2 failed with merge conflict")
-            }
-          } catch (error) {
-            console.error("Strategy 2 failed:", error)
+          // If the first strategy doesn't work, try the three-way merge
+          if (result === originalText) {
+            result = self.applyThreeWayMerge(searchText, replaceText, originalText);
           }
 
-          console.error("Git fallback failed")
-          return { confidence: 0, result: content, strategy: "git-fallback" }
+          // If we got a result different from the original, consider it successful
+          if (result !== originalText) {
+            const newLines = result.split("\n");
+            const confidence = validateEditResult(hunk, result);
+
+            return {
+              confidence: Math.max(confidence, 0.8),
+              result: newLines,
+              strategy: "in-memory-fallback",
+            };
+          }
+
+          // If no changes were applied, return original with 0 confidence
+          return {
+            confidence: 0,
+            result: content,
+            strategy: "in-memory-fallback"
+          };
         } catch (error) {
-          console.error("Git fallback strategy failed:", error)
-          return { confidence: 0, result: content, strategy: "git-fallback" }
-        } finally {
-          if (tmpDir) {
-            tmpDir.removeCallback()
-          }
+          console.error("In-memory fallback strategy failed:", error);
+          return {
+            confidence: 0,
+            result: content,
+            strategy: "in-memory-fallback"
+          };
         }
       },
 
@@ -267,16 +263,16 @@ export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'ed
         // Don't attempt regular edits if confidence is too low
         if (confidence < confidenceThreshold) {
           console.log(
-            `Search confidence (${confidence}) below minimum threshold (${confidenceThreshold}), trying git fallback...`,
+            `Search confidence (${confidence}) below minimum threshold (${confidenceThreshold}), trying in-memory fallback...`,
           )
-          return await self.applyGitFallback(hunk, content)
+          return await self.applyInMemoryFallback(hunk, content)
         }
 
         // Try each strategy in sequence until one succeeds
         const strategies = [
           { name: "dmp", apply: () => self.applyDMP(hunk, content, matchPosition) },
           { name: "context", apply: () => self.applyContextMatching(hunk, content, matchPosition) },
-          { name: "git-fallback", apply: () => self.applyGitFallback(hunk, content) },
+          { name: "in-memory-fallback", apply: () => self.applyInMemoryFallback(hunk, content) },
         ]
 
         // Try strategies sequentially until one succeeds
@@ -293,4 +289,4 @@ export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'ed
   }))
 
 const self = editStrategiesService.editStrategiesService
-export const { applyContextMatching, applyDMP, applyGitFallback } = self
+export const { applyContextMatching, applyDMP, applyInMemoryFallback } = self

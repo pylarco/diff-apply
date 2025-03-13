@@ -1,6 +1,6 @@
 {
   "name": "diff-apply-alvamind",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A utility for applying file diffs programmatically",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

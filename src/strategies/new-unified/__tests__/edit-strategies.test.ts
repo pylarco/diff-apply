@@ -1,7 +1,7 @@
 
-import { editStrategiesService } from "../../../../dist/strategies/new-unified/edit-strategies.service"
-const { applyContextMatching, applyDMP, applyGitFallback } = editStrategiesService.editStrategiesService
+const { applyContextMatching, applyDMP, applyInMemoryFallback } = editStrategiesService.editStrategiesService
 
+import { editStrategiesService } from "../edit-strategies.service"
 import { Hunk } from "../types"
 
 const testCases = [
@@ -261,8 +261,8 @@ describe("applyDMP", () => {
   })
 })
 
-describe("applyGitFallback", () => {
-  it("should successfully apply changes using git operations", async () => {
+describe("applyInMemoryFallback", () => {
+  it("should successfully apply changes using in-memory operations", async () => {
     const hunk = {
       changes: [
         { type: "context", content: "line1", indent: "" },
@@ -273,11 +273,11 @@ describe("applyGitFallback", () => {
     } as Hunk
 
     const content = ["line1", "line2", "line3"]
-    const result = await applyGitFallback(hunk, content)
+    const result = await applyInMemoryFallback(hunk, content)
 
     expect(result.result.join("\n")).toEqual("line1\nnew line2\nline3")
-    expect(result.confidence).toBe(1)
-    expect(result.strategy).toBe("git-fallback")
+    expect(result.confidence).toBeGreaterThanOrEqual(0.8) // Note: changed to match new implementation
+    expect(result.strategy).toBe("in-memory-fallback")
   })
 
   it("should return original content with 0 confidence when changes cannot be applied", async () => {
@@ -289,10 +289,10 @@ describe("applyGitFallback", () => {
     } as Hunk
 
     const content = ["line1", "line2", "line3"]
-    const result = await applyGitFallback(hunk, content)
+    const result = await applyInMemoryFallback(hunk, content)
 
     expect(result.result).toEqual(content)
     expect(result.confidence).toBe(0)
-    expect(result.strategy).toBe("git-fallback")
+    expect(result.strategy).toBe("in-memory-fallback")
   })
 })
