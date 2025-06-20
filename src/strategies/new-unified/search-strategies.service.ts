@@ -1,4 +1,3 @@
-import { compareTwoStrings } from "string-similarity"
 import { closest } from "fastest-levenshtein"
 import { diff_match_patch } from "diff-match-patch"
 import { Change, Hunk } from "./types"
@@ -11,15 +10,38 @@ export type SearchResult = {
   strategy: string
 }
 
+interface SearchStrategiesService {
+  getAdaptiveThreshold: (contentLength: number, baseThreshold: number) => number;
+  evaluateContentUniqueness: (searchStr: string, content: string[]) => number;
+  getTextFromChanges: (changes: Change[], types: Array<'context' | 'add' | 'remove'>) => string;
+  getDMPSimilarity: (original: string, modified: string) => number;
+  validateEditResult: (hunk: Hunk, result: string) => number;
+  validateContextLines: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number) => number;
+  calculateMatchConfidence: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number) => number;
+  createOverlappingWindows: (content: string[], searchSize: number, overlapSize?: number) => { window: string[]; startIndex: number }[];
+  combineOverlappingMatches: (matches: (SearchResult & { windowIndex: number })[], overlapSize?: number) => SearchResult[];
+  findExactMatch: (searchStr: string, content: string[], startIndex?: number, confidenceThreshold?: number) => SearchResult;
+  findSimilarityMatch: (searchStr: string, content: string[], startIndex?: number, confidenceThreshold?: number) => SearchResult;
+  findLevenshteinMatch: (searchStr: string, content: string[], startIndex?: number, confidenceThreshold?: number) => SearchResult;
+  identifyAnchors: (searchStr: string, maxAnchors?: number) => { text: string; score: number }[];
+  findAnchorMatch: (searchStr: string, content: string[], startIndex?: number, confidenceThreshold?: number) => SearchResult;
+  findBestMatch: (searchStr: string, content: string[], startIndex?: number, confidenceThreshold?: number) => SearchResult;
+}
+
 const LARGE_FILE_THRESHOLD = 1000 // lines
 const UNIQUE_CONTENT_BOOST = 0.05
 const DEFAULT_OVERLAP_SIZE = 3 // lines of overlap between windows
 const MAX_WINDOW_SIZE = 500 // maximum lines in a window
 
-export const searchStrategiesService = Alvamind({ name: 'search-strategies.service' })
+// Define the return type for Alvamind
+interface SearchStrategiesServiceModule {
+  searchStrategiesService: SearchStrategiesService;
+}
+
+export const searchStrategiesService: SearchStrategiesServiceModule = Alvamind({ name: 'search-strategies.service' })
   .use(textService)
   .derive(({ textService: { getStringSimilarity }}) => {
-    const serviceMethods = {
+    const serviceMethods: SearchStrategiesService = {
       // Helper function to calculate adaptive confidence threshold based on file size
       getAdaptiveThreshold: (contentLength: number, baseThreshold: number): number => {
         if (contentLength <= LARGE_FILE_THRESHOLD) {
@@ -279,15 +301,14 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
       },
 
       // Helper function to identify anchor lines
-      identifyAnchors: (searchStr: string): { first: string | null; last: string | null } => {
+      identifyAnchors: (searchStr: string, maxAnchors?: number): { text: string; score: number }[] => {
         const searchLines = searchStr.split("\n")
-        let first: string | null = null
-        let last: string | null = null
+        const anchors = []
 
         // Find the first non-empty line
         for (const line of searchLines) {
           if (line.trim()) {
-            first = line
+            anchors.push({ text: line, score: 1 })
             break
           }
         }
@@ -295,12 +316,12 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         // Find the last non-empty line
         for (let i = searchLines.length - 1; i >= 0; i--) {
           if (searchLines[i].trim()) {
-            last = searchLines[i]
+            anchors.push({ text: searchLines[i], score: 1 })
             break
           }
         }
 
-        return { first, last }
+        return anchors.slice(0, maxAnchors)
       },
 
       // Anchor-based search strategy
@@ -311,7 +332,14 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         confidenceThreshold: number = 0.97,
       ): SearchResult => {
         const searchLines = searchStr.split("\n")
-        const { first, last } = serviceMethods.identifyAnchors(searchStr)
+        const anchors = serviceMethods.identifyAnchors(searchStr, 2)
+        
+        if (anchors.length < 2) {
+          return { index: -1, confidence: 0, strategy: "anchor" }
+        }
+        
+        const first = anchors[0].text
+        const last = anchors[1].text
 
         if (!first || !last) {
           return { index: -1, confidence: 0, strategy: "anchor" }

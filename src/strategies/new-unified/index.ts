@@ -290,7 +290,7 @@ Your diff here
           for (const hunk of parsedDiff.hunks) {
             const processResult = await processHunk(hunk, result);
             if (processResult.success) {
-                result = processResult.result;
+                result = processResult.result!;
                 continue;
             }
 
@@ -303,7 +303,7 @@ Your diff here
             for (const subHunk of subHunks) {
               const subProcessResult = await processHunk(subHunk, subHunkResult);
               if (subProcessResult.success) {
-                subHunkResult = subProcessResult.result;
+                subHunkResult = subProcessResult.result!;
               } else {
                 allSubHunksApplied = false;
                 break;
@@ -346,8 +346,8 @@ Your diff here
               }
             } else { // type is 'edit'
               const { editResult } = processResult;
-              errorMsg = `Failed to apply the edit using ${editResult.strategy} strategy (${Math.floor(
-                editResult.confidence * 100,
+              errorMsg = `Failed to apply the edit using ${editResult?.strategy || 'unknown'} strategy (${Math.floor(
+                (editResult?.confidence || 0) * 100,
               )}% confidence)\n\n`
               errorMsg += "Debug Info:\n"
               errorMsg += "- The location was found but the content didn't match exactly\n"
