@@ -4,7 +4,6 @@ The content has been processed where content has been formatted for parsing in m
 # Directory Structure
 ```
 package.json
-README.md
 src/global.d.ts
 src/index.ts
 src/insert-groups.ts
@@ -24,12 +23,12 @@ tsconfig.tsbuildinfo
 # Files
 
 ## File: tsconfig.tsbuildinfo
-````
+```
 {"root":["./src/global.d.ts","./src/index.ts","./src/insert-groups.ts","./src/types.ts","./src/strategies/multi-search-replace.service.ts","./src/strategies/unified.service.ts","./src/strategies/__tests__/multi-search-replace.test.ts","./src/strategies/__tests__/new-unified.test.ts","./src/strategies/__tests__/search-replace.test.ts","./src/strategies/__tests__/unified.test.ts","./src/strategies/new-unified/edit-strategies.service.ts","./src/strategies/new-unified/index.ts","./src/strategies/new-unified/search-strategies.service.ts","./src/strategies/new-unified/types.ts","./src/strategies/new-unified/__tests__/edit-strategies.test.ts","./src/strategies/new-unified/__tests__/search-strategies.test.ts","./src/utils/extract-text.service.ts"],"errors":true,"version":"5.8.2"}
-````
+```
 
 ## File: src/global.d.ts
-````typescript
+```typescript
 import { describe as _describe, expect as _expect, it as _it, beforeEach as _beforeEach } from "bun:test";
 
 declare global {
@@ -41,10 +40,10 @@ declare global {
 
 // This export is needed to ensure this file is treated as a module
 export { };
-````
+```
 
 ## File: src/insert-groups.ts
-````typescript
+```typescript
 /**
  * Inserts multiple groups of elements at specified indices in an array
  * @param original Array to insert into, split by lines
@@ -76,437 +75,10 @@ export function insertGroups(original: string[], insertGroups: InsertGroup[]): s
 
 	return result
 }
-````
-
-## File: src/strategies/new-unified/search-strategies.service.ts
-````typescript
-import { compareTwoStrings } from "string-similarity"
-import { closest } from "fastest-levenshtein"
-import { diff_match_patch } from "diff-match-patch"
-import { Change, Hunk } from "./types"
-import Alvamind from 'alvamind';
-
-export type SearchResult = {
-  index: number
-  confidence: number
-  strategy: string
-}
-
-const LARGE_FILE_THRESHOLD = 1000 // lines
-const UNIQUE_CONTENT_BOOST = 0.05
-const DEFAULT_OVERLAP_SIZE = 3 // lines of overlap between windows
-const MAX_WINDOW_SIZE = 500 // maximum lines in a window
-
-export const searchStrategiesService = Alvamind({ name: 'search-strategies.service' })
-  .derive(() => ({
-
-    searchStrategiesService: {
-      // Helper function to calculate adaptive confidence threshold based on file size
-      getAdaptiveThreshold: (contentLength: number, baseThreshold: number): number => {
-        if (contentLength <= LARGE_FILE_THRESHOLD) {
-          return baseThreshold
-        }
-        return Math.max(baseThreshold - 0.07, 0.8) // Reduce threshold for large files but keep minimum at 80%
-      },
-
-      // Helper function to evaluate content uniqueness
-      evaluateContentUniqueness: (searchStr: string, content: string[]): number => {
-        const searchLines = searchStr.split("\n")
-        const uniqueLines = new Set(searchLines)
-        const contentStr = content.join("\n")
-
-        // Calculate how many search lines are relatively unique in the content
-        let uniqueCount = 0
-        for (const line of uniqueLines) {
-          const regex = new RegExp(line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")
-          const matches = contentStr.match(regex)
-          if (matches && matches.length <= 2) {
-            // Line appears at most twice
-            uniqueCount++
-          }
-        }
-
-        return uniqueCount / uniqueLines.size
-      },
-
-      // Helper function to prepare search string from context
-      prepareSearchString: (changes: Change[]): string => {
-        const lines = changes.filter((c) => c.type === "context" || c.type === "remove").map((c) => c.originalLine)
-        return lines.join("\n")
-      },
-
-      // Helper function to evaluate similarity between two texts
-      evaluateSimilarity: (original: string, modified: string): number => {
-        return compareTwoStrings(original, modified)
-      },
-
-      // Helper function to validate using diff-match-patch
-      getDMPSimilarity: (original: string, modified: string): number => {
-        const dmp = new diff_match_patch()
-        const diffs = dmp.diff_main(original, modified)
-        dmp.diff_cleanupSemantic(diffs)
-        const patches = dmp.patch_make(original, diffs)
-        const [expectedText] = dmp.patch_apply(patches, original)
-
-        const similarity = self.evaluateSimilarity(expectedText, modified)
-        return similarity
-      },
-
-      // Helper function to validate edit results using hunk information
-      validateEditResult: (hunk: Hunk, result: string): number => {
-        // Build the expected text from the hunk
-        const expectedText = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "add")
-          .map((change) => (change.indent ? change.indent + change.content : change.content))
-          .join("\n")
-
-        // Calculate similarity between the result and expected text
-        const similarity = self.getDMPSimilarity(expectedText, result)
-
-        // If the result is unchanged from original, return low confidence
-        const originalText = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "remove")
-          .map((change) => (change.indent ? change.indent + change.content : change.content))
-          .join("\n")
-
-        const originalSimilarity = self.getDMPSimilarity(originalText, result)
-        if (originalSimilarity > 0.97 && similarity !== 1) {
-          return 0.8 * similarity // Some confidence since we found the right location
-        }
-
-        // For partial matches, scale the confidence but keep it high if we're close
-        return similarity
-      },
-
-      // Helper function to validate context lines against original content
-      validateContextLines: (searchStr: string, content: string, confidenceThreshold: number): number => {
-        // Extract just the context lines from the search string
-        const contextLines = searchStr.split("\n").filter((line) => !line.startsWith("-")) // Exclude removed lines
-
-        // Compare context lines with content
-        const similarity = self.evaluateSimilarity(contextLines.join("\n"), content)
-
-        // Get adaptive threshold based on content size
-        const threshold = self.getAdaptiveThreshold(content.split("\n").length, confidenceThreshold)
-
-        // Calculate uniqueness boost
-        const uniquenessScore = self.evaluateContentUniqueness(searchStr, content.split("\n"))
-        const uniquenessBoost = uniquenessScore * UNIQUE_CONTENT_BOOST
-
-        // Adjust confidence based on threshold and uniqueness
-        return similarity < threshold ? similarity * 0.3 + uniquenessBoost : similarity + uniquenessBoost
-      },
-
-      // Helper function to create overlapping windows
-      createOverlappingWindows: (
-        content: string[],
-        searchSize: number,
-        overlapSize: number = DEFAULT_OVERLAP_SIZE,
-      ): { window: string[]; startIndex: number }[] => {
-        const windows: { window: string[]; startIndex: number }[] = []
-
-        // Ensure minimum window size is at least searchSize
-        const effectiveWindowSize = Math.max(searchSize, Math.min(searchSize * 2, MAX_WINDOW_SIZE))
-
-        // Ensure overlap size doesn't exceed window size
-        const effectiveOverlapSize = Math.min(overlapSize, effectiveWindowSize - 1)
-
-        // Calculate step size, ensure it's at least 1
-        const stepSize = Math.max(1, effectiveWindowSize - effectiveOverlapSize)
-
-        for (let i = 0; i < content.length; i += stepSize) {
-          const windowContent = content.slice(i, i + effectiveWindowSize)
-          if (windowContent.length >= searchSize) {
-            windows.push({ window: windowContent, startIndex: i })
-          }
-        }
-
-        return windows
-      },
-
-      // Helper function to combine overlapping matches
-      combineOverlappingMatches: (
-        matches: (SearchResult & { windowIndex: number })[],
-        overlapSize: number = DEFAULT_OVERLAP_SIZE,
-      ): SearchResult[] => {
-        if (matches.length === 0) {
-          return []
-        }
-
-        // Sort matches by confidence
-        matches.sort((a, b) => b.confidence - a.confidence)
-
-        const combinedMatches: SearchResult[] = []
-        const usedIndices = new Set<number>()
-
-        for (const match of matches) {
-          if (usedIndices.has(match.windowIndex)) {
-            continue
-          }
-
-          // Find overlapping matches
-          const overlapping = matches.filter(
-            (m) =>
-              Math.abs(m.windowIndex - match.windowIndex) === 1 &&
-              Math.abs(m.index - match.index) <= overlapSize &&
-              !usedIndices.has(m.windowIndex),
-          )
-
-          if (overlapping.length > 0) {
-            // Boost confidence if we find same match in overlapping windows
-            const avgConfidence =
-              (match.confidence + overlapping.reduce((sum, m) => sum + m.confidence, 0)) / (overlapping.length + 1)
-            const boost = Math.min(0.05 * overlapping.length, 0.1) // Max 10% boost
-
-            combinedMatches.push({
-              index: match.index,
-              confidence: Math.min(1, avgConfidence + boost),
-              strategy: `${match.strategy}-overlapping`,
-            })
-
-            usedIndices.add(match.windowIndex)
-            overlapping.forEach((m) => usedIndices.add(m.windowIndex))
-          } else {
-            combinedMatches.push({
-              index: match.index,
-              confidence: match.confidence,
-              strategy: match.strategy,
-            })
-            usedIndices.add(match.windowIndex)
-          }
-        }
-
-        return combinedMatches
-      },
-
-      findExactMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const searchLines = searchStr.split("\n")
-        const windows = self.createOverlappingWindows(content.slice(startIndex), searchLines.length)
-        const matches: (SearchResult & { windowIndex: number })[] = []
-
-        windows.forEach((windowData, windowIndex) => {
-          const windowStr = windowData.window.join("\n")
-          const exactMatch = windowStr.indexOf(searchStr)
-
-          if (exactMatch !== -1) {
-            const matchedContent = windowData.window
-              .slice(
-                windowStr.slice(0, exactMatch).split("\n").length - 1,
-                windowStr.slice(0, exactMatch).split("\n").length - 1 + searchLines.length,
-              )
-              .join("\n")
-
-            const similarity = self.getDMPSimilarity(searchStr, matchedContent)
-            const contextSimilarity = self.validateContextLines(searchStr, matchedContent, confidenceThreshold)
-            const confidence = Math.min(similarity, contextSimilarity)
-
-            matches.push({
-              index: startIndex + windowData.startIndex + windowStr.slice(0, exactMatch).split("\n").length - 1,
-              confidence,
-              strategy: "exact",
-              windowIndex,
-            })
-          }
-        })
-
-        const combinedMatches = self.combineOverlappingMatches(matches)
-        return combinedMatches.length > 0 ? combinedMatches[0] : { index: -1, confidence: 0, strategy: "exact" }
-      },
-
-      // String similarity strategy
-      findSimilarityMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const searchLines = searchStr.split("\n")
-        let bestScore = 0
-        let bestIndex = -1
-
-        for (let i = startIndex; i < content.length - searchLines.length + 1; i++) {
-          const windowStr = content.slice(i, i + searchLines.length).join("\n")
-          const score = compareTwoStrings(searchStr, windowStr)
-          if (score > bestScore && score >= confidenceThreshold) {
-            const similarity = self.getDMPSimilarity(searchStr, windowStr)
-            const contextSimilarity = self.validateContextLines(searchStr, windowStr, confidenceThreshold)
-            const adjustedScore = Math.min(similarity, contextSimilarity) * score
-
-            if (adjustedScore > bestScore) {
-              bestScore = adjustedScore
-              bestIndex = i
-            }
-          }
-        }
-
-        return {
-          index: bestIndex,
-          confidence: bestIndex !== -1 ? bestScore : 0,
-          strategy: "similarity",
-        }
-      },
-
-      // Levenshtein strategy
-      findLevenshteinMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const searchLines = searchStr.split("\n")
-        const candidates = []
-
-        for (let i = startIndex; i < content.length - searchLines.length + 1; i++) {
-          candidates.push(content.slice(i, i + searchLines.length).join("\n"))
-        }
-
-        if (candidates.length > 0) {
-          const closestMatch = closest(searchStr, candidates)
-          const index = startIndex + candidates.indexOf(closestMatch)
-          const similarity = self.getDMPSimilarity(searchStr, closestMatch)
-          const contextSimilarity = self.validateContextLines(searchStr, closestMatch, confidenceThreshold)
-          const confidence = Math.min(similarity, contextSimilarity)
-          return {
-            index: confidence === 0 ? -1 : index,
-            confidence: index !== -1 ? confidence : 0,
-            strategy: "levenshtein",
-          }
-        }
-
-        return { index: -1, confidence: 0, strategy: "levenshtein" }
-      },
-
-      // Helper function to identify anchor lines
-      identifyAnchors: (searchStr: string): { first: string | null; last: string | null } => {
-        const searchLines = searchStr.split("\n")
-        let first: string | null = null
-        let last: string | null = null
-
-        // Find the first non-empty line
-        for (const line of searchLines) {
-          if (line.trim()) {
-            first = line
-            break
-          }
-        }
-
-        // Find the last non-empty line
-        for (let i = searchLines.length - 1; i >= 0; i--) {
-          if (searchLines[i].trim()) {
-            last = searchLines[i]
-            break
-          }
-        }
-
-        return { first, last }
-      },
-
-      // Anchor-based search strategy
-      findAnchorMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const searchLines = searchStr.split("\n")
-        const { first, last } = self.identifyAnchors(searchStr)
-
-        if (!first || !last) {
-          return { index: -1, confidence: 0, strategy: "anchor" }
-        }
-
-        let firstIndex = -1
-        let lastIndex = -1
-
-        // Check if the first anchor is unique
-        let firstOccurrences = 0
-        for (const contentLine of content) {
-          if (contentLine === first) {
-            firstOccurrences++
-          }
-        }
-
-        if (firstOccurrences !== 1) {
-          return { index: -1, confidence: 0, strategy: "anchor" }
-        }
-
-        // Find the first anchor
-        for (let i = startIndex; i < content.length; i++) {
-          if (content[i] === first) {
-            firstIndex = i
-            break
-          }
-        }
-
-        // Find the last anchor
-        for (let i = content.length - 1; i >= startIndex; i--) {
-          if (content[i] === last) {
-            lastIndex = i
-            break
-          }
-        }
-
-        if (firstIndex === -1 || lastIndex === -1 || lastIndex <= firstIndex) {
-          return { index: -1, confidence: 0, strategy: "anchor" }
-        }
-
-        // Validate the context
-        const expectedContext = searchLines.slice(searchLines.indexOf(first) + 1, searchLines.indexOf(last)).join("\n")
-        const actualContext = content.slice(firstIndex + 1, lastIndex).join("\n")
-        const contextSimilarity = self.evaluateSimilarity(expectedContext, actualContext)
-
-        if (contextSimilarity < self.getAdaptiveThreshold(content.length, confidenceThreshold)) {
-          return { index: -1, confidence: 0, strategy: "anchor" }
-        }
-
-        const confidence = 1
-
-        return {
-          index: firstIndex,
-          confidence: confidence,
-          strategy: "anchor",
-        }
-      },
-
-      // Main search function that tries all strategies
-      findBestMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const strategies = [
-          self.findExactMatch,
-          self.findAnchorMatch,
-          self.findSimilarityMatch,
-          self.findLevenshteinMatch,
-        ]
-
-        let bestResult: SearchResult = { index: -1, confidence: 0, strategy: "none" }
-
-        for (const strategy of strategies) {
-          const result = strategy(searchStr, content, startIndex, confidenceThreshold)
-          if (result.confidence > bestResult.confidence) {
-            bestResult = result
-          }
-        }
-
-        return bestResult
-      },
-    }
-  }));
-
-const self = searchStrategiesService.searchStrategiesService
-export const { findAnchorMatch, findExactMatch, findSimilarityMatch, findLevenshteinMatch } = self
-````
+```
 
 ## File: src/strategies/new-unified/types.ts
-````typescript
+```typescript
 export type Change = {
 	type: "context" | "add" | "remove"
 	content: string
@@ -527,10 +99,10 @@ export type EditResult = {
 	result: string[]
 	strategy: string
 }
-````
+```
 
 ## File: src/strategies/unified.service.ts
-````typescript
+```typescript
 // diff-apply-alvamind/src/strategies/unified.service.ts
 import { applyPatch } from "diff";
 import { DiffResult } from "../types";
@@ -676,10 +248,10 @@ Your diff here
   }));
 
 export const { applyDiff, getToolDescription } = unifiedDiffService.unifiedDiffService
-````
+```
 
 ## File: src/types.ts
-````typescript
+```typescript
 /**
  * Interface for implementing different diff strategies
  */
@@ -727,10 +299,10 @@ export interface ApplyDiffParams {
   startLine?: number
   endLine?: number
 }
-````
+```
 
 ## File: src/utils/extract-text.service.ts
-````typescript
+```typescript
 // diff-apply-alvamind/src/extract-text.service.ts
 import Alvamind from 'alvamind';
 
@@ -768,10 +340,10 @@ export const textService = Alvamind({ name: 'extract-text.service' })
       return processedLines.join(lineEnding);
     },
   });
-````
+```
 
 ## File: tsconfig.build.json
-````json
+```json
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
@@ -787,10 +359,10 @@ export const textService = Alvamind({ name: 'extract-text.service' })
   "include": ["src/*.ts"],
   "exclude": ["test", "dist", "node_modules"]
 }
-````
+```
 
 ## File: tsconfig.json
-````json
+```json
 {
   "compilerOptions": {
     "lib": ["ESNext"],
@@ -811,376 +383,10 @@ export const textService = Alvamind({ name: 'extract-text.service' })
     "types": ["bun-types"]
   }
 }
-````
-
-## File: README.md
-````markdown
-# Diff Apply Alvamind
-
-[![npm version](https://badge.fury.io/js/diff-apply-alvamind.svg)](https://www.npmjs.com/package/diff-apply-alvamind)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-<!-- Add a build/test status badge if you have CI/CD -->
-<!-- [![Build Status](https://travis-ci.org/your-username/diff-apply-alvamind.svg?branch=main)](https://travis-ci.org/your-username/diff-apply-alvamind) -->
-
-`diff-apply-alvamind` is a powerful and flexible JavaScript/TypeScript library designed to apply diffs to text content, particularly source code.  It offers multiple diff strategies, robust error handling, and features specifically tailored for handling whitespace and indentation, making it ideal for code modification tools, automated refactoring, and collaborative editing scenarios.  It leverages the power of the [Alvamind](https://github.com/alvaman/alvamind) framework for dependency injection and extensibility.
-
-## Key Features
-
-*   **Multiple Diff Strategies:**  Offers a variety of diffing algorithms to handle different scenarios and diff formats:
-    *   **`searchReplaceDiffStrategy`:**  Performs a precise search and replace operation.  Excellent for surgical modifications where you know the exact content to be changed.  Supports fuzzy matching, line number constraints, and middle-out searching.
-    *   **`multiSearchReplaceDiffStrategy`:**  Similar to `searchReplaceDiffStrategy`, but supports applying multiple search/replace blocks within a single diff. This is highly efficient for making several related changes in one go.
-    *   **`unifiedDiffStrategy`:**  Applies standard unified diffs (as generated by `diff -u`).  A common format for patches and version control.
-    *   **`newUnifiedDiffStrategy`:** A enhanced version of the `unifiedDiffStrategy` with more advanced features, better fuzzy, anchor and fallback to git strategy.
-*   **Whitespace and Indentation Handling:**  Carefully preserves indentation (spaces and tabs) during replacements, ensuring code formatting remains consistent.  Handles mixed indentation styles.
-*   **Fuzzy Matching:**  `searchReplaceDiffStrategy` and `multiSearchReplaceDiffStrategy` can handle slight variations between the diff and the original content, making it more resilient to minor changes.
-*   **Line Number Constraints:**  `searchReplaceDiffStrategy` and `multiSearchReplaceDiffStrategy` allow you to specify a line number range to constrain the search, improving accuracy and preventing unintended modifications.
-*   **Detailed Error Reporting:**  Provides comprehensive error messages when a diff cannot be applied, including similarity scores, matched ranges, and debugging information, helping you pinpoint the cause of the issue.
-*   **Line Number Stripping:**  `searchReplaceDiffStrategy` and `multiSearchReplaceDiffStrategy` automatically handles diffs that include or omit line numbers, adding flexibility.
-*   **Insertion and Deletion:**  Supports inserting new code blocks at specific lines and deleting entire sections of code.
-*   **TypeScript Support:**  Fully typed for a better development experience.
-* **Middle-Out Search**: `searchReplaceDiffStrategy` and `multiSearchReplaceDiffStrategy` support efficient searching for matches that prioritizes areas closer to the middle, this help the AI to select the right place, when there are multiple instances of the same code.
-*   **Extensible with Alvamind:** Built with Alvamind, making it easy to extend and customize.
-
-## Installation
-
-```bash
-npm install diff-apply-alvamind
 ```
-
-## Usage
-
-```typescript
-import {
-  searchReplaceDiffStrategy,
-  multiSearchReplaceDiffStrategy,
-  unifiedDiffStrategy,
-  newUnifiedDiffStrategy,
-  DiffResult,
-  DiffStrategy,
-  InsertGroup,
-  insertGroups,
-} from 'diff-apply-alvamind';
-
-// --- Example with searchReplaceDiffStrategy ---
-
-const originalContent = `
-function hello() {
-  console.log("hello");
-}
-`;
-
-const diffContent = `
-<<<<<<< SEARCH
-function hello() {
-  console.log("hello");
-}
-=======
-function hello() {
-  console.log("hello world");
-}
->>>>>>> REPLACE
-`;
-
-const result: DiffResult = searchReplaceDiffStrategy.applyDiff({ originalContent, diffContent });
-
-if (result.success) {
-  console.log("Modified Content (searchReplace):\n", result.content);
-} else {
-  console.error("Error applying diff (searchReplace):\n", result.error);
-}
-
-// --- Example with multiSearchReplaceDiffStrategy ---
-const originalContentMulti = `
-function one() {
-    return "target";
-}
-
-function two() {
-    return "target";
-}
-`;
-
-const diffContentMulti = `
-<<<<<<< SEARCH
-    return "target";
-=======
-    return "updated";
->>>>>>> REPLACE
-
-<<<<<<< SEARCH
-function two() {
-=======
-function twoChanged() {
->>>>>>> REPLACE
-`;
-
-const resultMulti: DiffResult = multiSearchReplaceDiffStrategy.applyDiff(originalContentMulti, diffContentMulti);
-if (resultMulti.success) {
-  console.log("Modified Content (multiSearchReplace):\n", resultMulti.content);
-} else {
-  console.error("Error applying diff (multiSearchReplace):\n", resultMulti.error);
-}
-// --- Example with unifiedDiffStrategy ---
-
-const originalContentUnified = `
-function greet(name) {
-  return "Hello, " + name + "!";
-}
-`;
-
-const diffContentUnified = `
---- a/file.js
-+++ b/file.js
-@@ -1,3 +1,3 @@
- function greet(name) {
--  return "Hello, " + name + "!";
-+  return "Hello, " + name + "!!";
- }
-`;
-
-const resultUnified: DiffResult = unifiedDiffStrategy.applyDiff(originalContentUnified, diffContentUnified);
-
-if (resultUnified.success) {
-  console.log("Modified Content (unified):\n", resultUnified.content);
-} else {
-  console.error("Error applying diff (unified):\n", resultUnified.error);
-}
-
-// --- Example with newUnifiedDiffStrategy ---
-
-const originalContentNewUnified = `
-function greet(name) {
-  return "Hello, " + name + "!";
-}
-`;
-
-const diffContentNewUnified = `
---- a/file.js
-+++ b/file.js
-@@ ... @@
- function greet(name) {
--  return "Hello, " + name + "!";
-+  return "Hello, " + name + "!!";
- }
-`;
-
-const resultNewUnified: DiffResult = newUnifiedDiffStrategy.applyDiff({
-  originalContent: originalContentNewUnified,
-  diffContent: diffContentNewUnified
-});
-
-if (resultNewUnified.success) {
-  console.log("Modified Content (newUnified):\n", resultNewUnified.content);
-} else {
-  console.error("Error applying diff (newUnified):\n", resultNewUnified.error);
-}
-
-
-// --- Example with insertGroups ---
-const original = ['line1', 'line2', 'line3'];
-const groups: InsertGroup[] = [
-  { index: 1, elements: ['inserted1', 'inserted2'] },
-  { index: 3, elements: ['inserted3'] },
-];
-const inserted = insertGroups(original, groups);
-console.log("Inserted Content:\n", inserted.join('\n'));
-// Output:
-// line1
-// inserted1
-// inserted2
-// line2
-// inserted3
-// line3
-
-
-```
-
-## API Reference
-
-### `DiffStrategy` Interface
-
-```typescript
-interface DiffStrategy {
-  getToolDescription(args: { cwd: string; toolOptions?: { [key: string]: string } }): string;
-  applyDiff(params: ApplyDiffParams): DiffResult;
-}
-```
-
-*   `getToolDescription(args: { cwd: string })`: Returns a string describing the strategy, intended for use in tools or documentation.  The `cwd` argument represents the current working directory.
-
-*   `applyDiff(params: ApplyDiffParams)`:  Applies the diff.  Returns a `DiffResult`.
-    * `originalContent`: The original text content.
-    * `diffContent`:  The diff content, in the format specific to the strategy.
-    * `fuzzyThreshold?`: (Optional, `searchReplaceDiffStrategy` and `multiSearchReplaceDiffStrategy` only) A number between 0 and 1 (inclusive) representing the minimum similarity score required for a fuzzy match. Defaults to 1.0 (exact match).
-    * `bufferLines?`:  (Optional, `searchReplaceDiffStrategy` and `multiSearchReplaceDiffStrategy` only) The number of lines before and after the specified line range to consider when searching.  Defaults to 20.
-    * `startLine?`:  (Optional, `searchReplaceDiffStrategy` and `multiSearchReplaceDiffStrategy` only) The starting line number for the search (1-indexed).
-    * `endLine?`: (Optional, `searchReplaceDiffStrategy` and `multiSearchReplaceDiffStrategy` only) The ending line number for the search (1-indexed).
-
-### `DiffResult` Type
-
-```typescript
-type DiffResult =
-  | { success: true; content: string; failParts?: DiffResult[] }
-  | ({
-    success: false
-    error?: string
-    details?: {
-      similarity?: number
-      threshold?: number
-      matchedRange?: { start: number; end: number }
-      searchContent?: string
-      bestMatch?: string
-    }
-    failParts?: DiffResult[]
-  } & ({ error: string } | { failParts: DiffResult[] }))
-```
-
-*   `success`:  `true` if the diff was applied successfully, `false` otherwise.
-*   `content`:  (If `success` is `true`) The modified content.
-*   `error`: (If `success` is `false`) A human-readable error message.
-*   `details`:  (If `success` is `false`, optional) An object containing more details about the failure:
-    *   `similarity`:  The similarity score between the search content and the best match found (0 to 1).
-    *   `threshold`:  The minimum similarity threshold required.
-    *   `matchedRange`:  The line range where the best match was found.
-    *   `searchContent`:  The content that was searched for.
-    *   `bestMatch`:  The best matching content found.
-* `failParts`: (Optional) diff results for each operation, when there are multiple operations
-
-### `insertGroups` Function
-
-```typescript
-function insertGroups(original: string[], insertGroups: InsertGroup[]): string[];
-
-interface InsertGroup {
-  index: number;
-  elements: string[];
-}
-```
-
-Inserts groups of strings into an array at specified indices.
-
-*   `original`: The original array of strings.
-*   `insertGroups`: An array of `InsertGroup` objects, each specifying an `index` (where to insert) and `elements` (the strings to insert).  The `insertGroups` array will be sorted by index before insertion.
-
-### Exported Strategies
-
-*   `searchReplaceDiffStrategy`
-*   `multiSearchReplaceDiffStrategy`
-*   `unifiedDiffStrategy`
-*  `newUnifiedDiffStrategy`
-
-Each of these exports an object that implements the `DiffStrategy` interface.
-
-## Diff Formats
-
-### `searchReplaceDiffStrategy` and `multiSearchReplaceDiffStrategy` Format
-
-```
-<<<<<<< SEARCH
-[exact content to find, including whitespace and indentation]
-=======
-[new content to replace with, preserving indentation relative to the SEARCH block]
->>>>>>> REPLACE
-```
-* **Example with multi:**
-```
-<<<<<<< SEARCH
-:start_line:1
-:end_line:2
--------
-def calculate_sum(items):
-sum = 0
-=======
-def calculate_sum(items):
-sum = 0
->>>>>>> REPLACE
-
-<<<<<<< SEARCH
-:start_line:4
-:end_line:5
--------
-total += item
-return total
-=======
-sum += item
-return sum
->>>>>>> REPLACE
-```
-
-*   **`<<<<<<< SEARCH`**:  Marks the beginning of the section to search for.
-*   **`=======`**: Separates the search section from the replacement section.
-*   **`>>>>>>> REPLACE`**: Marks the end of the replacement section.
-* **Line numbers** You can use or not line numbers.
-* **Indentation** You must preserve the correct indentation.
-
-### `unifiedDiffStrategy` Format
-
-Standard unified diff format (output of `diff -u`).
-
-```
---- a/file.ext
-+++ b/file.ext
-@@ -1,3 +1,3 @@
- line1
--line2
-+new line2
- line3
-```
-
-*   **`--- a/file.ext`**:  The original file path.
-*   **`+++ b/file.ext`**:  The modified file path.
-*   **`@@ -1,3 +1,3 @@`**:  The hunk header, indicating the line numbers and changes.
-*   **`-`**:  Lines to be removed.
-*   **`+`**:  Lines to be added.
-*   **(space)**: Context lines.
-
-### `newUnifiedDiffStrategy` Format
-
-Standard unified diff format (output of `diff -u`).
-
-```
---- a/file.ext
-+++ b/file.ext
-@@ ... @@
- line1
--line2
-+new line2
- line3
-```
-
-*   **`--- a/file.ext`**:  The original file path.
-*   **`+++ b/file.ext`**:  The modified file path.
-*   **`@@ ... @@`**:  The hunk header.
-*   **`-`**:  Lines to be removed.
-*   **`+`**:  Lines to be added.
-*   **(space)**: Context lines.
-
-##  Error Handling
-
-The `applyDiff` method returns a `DiffResult` object.  If `success` is `false`, the `error` property will contain a detailed error message.  The `details` property may provide further information, such as the similarity score and the range where the best match was found.  This allows you to implement robust error handling and provide helpful feedback to the user.
-
-## Contributing
-
-Contributions are welcome!  Please follow these guidelines:
-
-1.  Fork the repository.
-2.  Create a new branch for your feature or bug fix: `git checkout -b feature/my-new-feature` or `git checkout -b fix/some-bug`.
-3.  Write tests for your changes.
-4.  Make your changes.
-5.  Run the tests: `bun test`.
-6.  Commit your changes: `git commit -m "Add a helpful commit message"`.
-7.  Push your branch: `git push origin feature/my-new-feature`.
-8.  Create a pull request.
-
-Please ensure your code adheres to the existing coding style and that all tests pass before submitting a pull request.
-
-## License
-
-MIT License (see [LICENSE](LICENSE) file).
-````
 
 ## File: src/index.ts
-````typescript
+```typescript
 // src/index.ts
 // Export your public API here
 // For example:
@@ -1204,10 +410,420 @@ export const { unifiedDiffService: unifiedDiffStrategy } = unifiedDiffService
 export const { newUnifiedDiffStrategyService: newUnifiedDiffStrategy } = newUnifiedDiffStrategyService
 export const { multiSearchReplaceService: multiSearchReplaceDiffStrategy } = multiSearchReplaceService
 export const { searchReplaceService: searchReplaceDiffStrategy } = searchReplaceService
-````
+```
+
+## File: src/strategies/new-unified/search-strategies.service.ts
+```typescript
+import { compareTwoStrings } from "string-similarity"
+import { closest } from "fastest-levenshtein"
+import { diff_match_patch } from "diff-match-patch"
+import { Change, Hunk } from "./types"
+import Alvamind from 'alvamind';
+
+export type SearchResult = {
+  index: number
+  confidence: number
+  strategy: string
+}
+
+const LARGE_FILE_THRESHOLD = 1000 // lines
+const UNIQUE_CONTENT_BOOST = 0.05
+const DEFAULT_OVERLAP_SIZE = 3 // lines of overlap between windows
+const MAX_WINDOW_SIZE = 500 // maximum lines in a window
+
+export const searchStrategiesService = Alvamind({ name: 'search-strategies.service' })
+  .derive(() => ({
+
+    searchStrategiesService: {
+      // Helper function to calculate adaptive confidence threshold based on file size
+      getAdaptiveThreshold: (contentLength: number, baseThreshold: number): number => {
+        if (contentLength <= LARGE_FILE_THRESHOLD) {
+          return baseThreshold
+        }
+        return Math.max(baseThreshold - 0.07, 0.8) // Reduce threshold for large files but keep minimum at 80%
+      },
+
+      // Helper function to evaluate content uniqueness
+      evaluateContentUniqueness: (searchStr: string, content: string[]): number => {
+        const searchLines = searchStr.split("\n")
+        const uniqueLines = new Set(searchLines)
+        const contentStr = content.join("\n")
+
+        // Calculate how many search lines are relatively unique in the content
+        let uniqueCount = 0
+        for (const line of uniqueLines) {
+          const regex = new RegExp(line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")
+          const matches = contentStr.match(regex)
+          if (matches && matches.length <= 2) {
+            // Line appears at most twice
+            uniqueCount++
+          }
+        }
+
+        return uniqueCount / uniqueLines.size
+      },
+
+      // Helper function to build text from hunk changes
+      getTextFromChanges: (changes: Change[], types: Array<'context' | 'add' | 'remove'>): string => {
+        return changes
+          .filter((change) => types.includes(change.type))
+          .map((change) => change.originalLine ?? (change.indent ? change.indent + change.content : change.content))
+          .join("\n")
+      },
+
+      // Helper function to evaluate similarity between two texts
+      evaluateSimilarity: (original: string, modified: string): number => {
+        return compareTwoStrings(original, modified)
+      },
+
+      // Helper function to validate using diff-match-patch
+      getDMPSimilarity: (original: string, modified: string): number => {
+        const dmp = new diff_match_patch()
+        const diffs = dmp.diff_main(original, modified)
+        dmp.diff_cleanupSemantic(diffs)
+        const patches = dmp.patch_make(original, diffs)
+        const [expectedText] = dmp.patch_apply(patches, original)
+
+        const similarity = self.evaluateSimilarity(expectedText, modified)
+        return similarity
+      },
+
+      // Helper function to validate edit results using hunk information
+      validateEditResult: (hunk: Hunk, result: string): number => {
+        const expectedText = self.getTextFromChanges(hunk.changes, ["context", "add"])
+        const originalText = self.getTextFromChanges(hunk.changes, ["context", "remove"])
+        const similarity = self.getDMPSimilarity(expectedText, result)
+        const originalSimilarity = self.getDMPSimilarity(originalText, result)
+
+        if (originalSimilarity > 0.97 && similarity !== 1) {
+          return 0.8 * similarity // Some confidence since we found the right location
+        }
+        return similarity
+      },
+      
+      // Helper function to validate context lines against original content
+      validateContextLines: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number): number => {
+        const contextLines = searchStr.split("\n").filter((line) => !line.startsWith("-"))
+        const similarity = self.evaluateSimilarity(contextLines.join("\n"), candidateStr)
+        const threshold = self.getAdaptiveThreshold(fullContent.length, confidenceThreshold)
+        const uniquenessScore = self.evaluateContentUniqueness(searchStr, fullContent)
+        const uniquenessBoost = uniquenessScore * UNIQUE_CONTENT_BOOST
+
+        return similarity < threshold ? similarity * 0.3 + uniquenessBoost : similarity + uniquenessBoost
+      },
+
+      // Helper function to calculate match confidence
+      calculateMatchConfidence: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number): number => {
+        const dmpSimilarity = self.getDMPSimilarity(searchStr, candidateStr);
+        const contextSimilarity = self.validateContextLines(searchStr, candidateStr, fullContent, confidenceThreshold);
+        return Math.min(dmpSimilarity, contextSimilarity);
+      },
+      
+      // Helper function to create overlapping windows
+      createOverlappingWindows: (
+        content: string[],
+        searchSize: number,
+        overlapSize: number = DEFAULT_OVERLAP_SIZE,
+      ): { window: string[]; startIndex: number }[] => {
+        const windows: { window: string[]; startIndex: number }[] = []
+
+        // Ensure minimum window size is at least searchSize
+        const effectiveWindowSize = Math.max(searchSize, Math.min(searchSize * 2, MAX_WINDOW_SIZE))
+
+        // Ensure overlap size doesn't exceed window size
+        const effectiveOverlapSize = Math.min(overlapSize, effectiveWindowSize - 1)
+
+        // Calculate step size, ensure it's at least 1
+        const stepSize = Math.max(1, effectiveWindowSize - effectiveOverlapSize)
+
+        for (let i = 0; i < content.length; i += stepSize) {
+          const windowContent = content.slice(i, i + effectiveWindowSize)
+          if (windowContent.length >= searchSize) {
+            windows.push({ window: windowContent, startIndex: i })
+          }
+        }
+
+        return windows
+      },
+
+      // Helper function to combine overlapping matches
+      combineOverlappingMatches: (
+        matches: (SearchResult & { windowIndex: number })[],
+        overlapSize: number = DEFAULT_OVERLAP_SIZE,
+      ): SearchResult[] => {
+        if (matches.length === 0) {
+          return []
+        }
+
+        // Sort matches by confidence
+        matches.sort((a, b) => b.confidence - a.confidence)
+
+        const combinedMatches: SearchResult[] = []
+        const usedIndices = new Set<number>()
+
+        for (const match of matches) {
+          if (usedIndices.has(match.windowIndex)) {
+            continue
+          }
+
+          // Find overlapping matches
+          const overlapping = matches.filter(
+            (m) =>
+              Math.abs(m.windowIndex - match.windowIndex) === 1 &&
+              Math.abs(m.index - match.index) <= overlapSize &&
+              !usedIndices.has(m.windowIndex),
+          )
+
+          if (overlapping.length > 0) {
+            // Boost confidence if we find same match in overlapping windows
+            const avgConfidence =
+              (match.confidence + overlapping.reduce((sum, m) => sum + m.confidence, 0)) / (overlapping.length + 1)
+            const boost = Math.min(0.05 * overlapping.length, 0.1) // Max 10% boost
+
+            combinedMatches.push({
+              index: match.index,
+              confidence: Math.min(1, avgConfidence + boost),
+              strategy: `${match.strategy}-overlapping`,
+            })
+
+            usedIndices.add(match.windowIndex)
+            overlapping.forEach((m) => usedIndices.add(m.windowIndex))
+          } else {
+            combinedMatches.push({
+              index: match.index,
+              confidence: match.confidence,
+              strategy: match.strategy,
+            })
+            usedIndices.add(match.windowIndex)
+          }
+        }
+
+        return combinedMatches
+      },
+
+      findExactMatch: (
+        searchStr: string,
+        content: string[],
+        startIndex: number = 0,
+        confidenceThreshold: number = 0.97,
+      ): SearchResult => {
+        const searchLines = searchStr.split("\n")
+        const windows = self.createOverlappingWindows(content.slice(startIndex), searchLines.length)
+        const matches: (SearchResult & { windowIndex: number })[] = []
+
+        windows.forEach((windowData, windowIndex) => {
+          const windowStr = windowData.window.join("\n")
+          const exactMatch = windowStr.indexOf(searchStr)
+
+          if (exactMatch !== -1) {
+            const matchedContent = windowData.window
+              .slice(
+                windowStr.slice(0, exactMatch).split("\n").length - 1,
+                windowStr.slice(0, exactMatch).split("\n").length - 1 + searchLines.length,
+              )
+              .join("\n")
+
+            const confidence = self.calculateMatchConfidence(searchStr, matchedContent, content, confidenceThreshold);
+
+            matches.push({
+              index: startIndex + windowData.startIndex + windowStr.slice(0, exactMatch).split("\n").length - 1,
+              confidence,
+              strategy: "exact",
+              windowIndex,
+            })
+          }
+        })
+
+        const combinedMatches = self.combineOverlappingMatches(matches)
+        return combinedMatches.length > 0 ? combinedMatches[0] : { index: -1, confidence: 0, strategy: "exact" }
+      },
+
+      // String similarity strategy
+      findSimilarityMatch: (
+        searchStr: string,
+        content: string[],
+        startIndex: number = 0,
+        confidenceThreshold: number = 0.97,
+      ): SearchResult => {
+        const searchLines = searchStr.split("\n")
+        let bestScore = 0
+        let bestIndex = -1
+
+        for (let i = startIndex; i < content.length - searchLines.length + 1; i++) {
+          const windowStr = content.slice(i, i + searchLines.length).join("\n")
+          const score = compareTwoStrings(searchStr, windowStr)
+          if (score > bestScore && score >= confidenceThreshold) {
+            const confidence = self.calculateMatchConfidence(searchStr, windowStr, content, confidenceThreshold);
+            const adjustedScore = confidence * score
+
+            if (adjustedScore > bestScore) {
+              bestScore = adjustedScore
+              bestIndex = i
+            }
+          }
+        }
+
+        return {
+          index: bestIndex,
+          confidence: bestIndex !== -1 ? bestScore : 0,
+          strategy: "similarity",
+        }
+      },
+
+      // Levenshtein strategy
+      findLevenshteinMatch: (
+        searchStr: string,
+        content: string[],
+        startIndex: number = 0,
+        confidenceThreshold: number = 0.97,
+      ): SearchResult => {
+        const searchLines = searchStr.split("\n")
+        const candidates = []
+
+        for (let i = startIndex; i < content.length - searchLines.length + 1; i++) {
+          candidates.push(content.slice(i, i + searchLines.length).join("\n"))
+        }
+
+        if (candidates.length > 0) {
+          const closestMatch = closest(searchStr, candidates)
+          const index = startIndex + candidates.indexOf(closestMatch)
+          const confidence = self.calculateMatchConfidence(searchStr, closestMatch, content, confidenceThreshold);
+          return {
+            index: confidence === 0 ? -1 : index,
+            confidence: index !== -1 ? confidence : 0,
+            strategy: "levenshtein",
+          }
+        }
+
+        return { index: -1, confidence: 0, strategy: "levenshtein" }
+      },
+
+      // Helper function to identify anchor lines
+      identifyAnchors: (searchStr: string): { first: string | null; last: string | null } => {
+        const searchLines = searchStr.split("\n")
+        let first: string | null = null
+        let last: string | null = null
+
+        // Find the first non-empty line
+        for (const line of searchLines) {
+          if (line.trim()) {
+            first = line
+            break
+          }
+        }
+
+        // Find the last non-empty line
+        for (let i = searchLines.length - 1; i >= 0; i--) {
+          if (searchLines[i].trim()) {
+            last = searchLines[i]
+            break
+          }
+        }
+
+        return { first, last }
+      },
+
+      // Anchor-based search strategy
+      findAnchorMatch: (
+        searchStr: string,
+        content: string[],
+        startIndex: number = 0,
+        confidenceThreshold: number = 0.97,
+      ): SearchResult => {
+        const searchLines = searchStr.split("\n")
+        const { first, last } = self.identifyAnchors(searchStr)
+
+        if (!first || !last) {
+          return { index: -1, confidence: 0, strategy: "anchor" }
+        }
+
+        let firstIndex = -1
+        let lastIndex = -1
+
+        // Check if the first anchor is unique
+        let firstOccurrences = 0
+        for (const contentLine of content) {
+          if (contentLine === first) {
+            firstOccurrences++
+          }
+        }
+
+        if (firstOccurrences !== 1) {
+          return { index: -1, confidence: 0, strategy: "anchor" }
+        }
+
+        // Find the first anchor
+        for (let i = startIndex; i < content.length; i++) {
+          if (content[i] === first) {
+            firstIndex = i
+            break
+          }
+        }
+
+        // Find the last anchor
+        for (let i = content.length - 1; i >= startIndex; i--) {
+          if (content[i] === last) {
+            lastIndex = i
+            break
+          }
+        }
+
+        if (firstIndex === -1 || lastIndex === -1 || lastIndex <= firstIndex) {
+          return { index: -1, confidence: 0, strategy: "anchor" }
+        }
+
+        // Validate the context
+        const expectedContext = searchLines.slice(searchLines.indexOf(first) + 1, searchLines.indexOf(last)).join("\n")
+        const actualContext = content.slice(firstIndex + 1, lastIndex).join("\n")
+        const contextSimilarity = self.evaluateSimilarity(expectedContext, actualContext)
+
+        if (contextSimilarity < self.getAdaptiveThreshold(content.length, confidenceThreshold)) {
+          return { index: -1, confidence: 0, strategy: "anchor" }
+        }
+
+        const confidence = 1
+
+        return {
+          index: firstIndex,
+          confidence: confidence,
+          strategy: "anchor",
+        }
+      },
+
+      // Main search function that tries all strategies
+      findBestMatch: (
+        searchStr: string,
+        content: string[],
+        startIndex: number = 0,
+        confidenceThreshold: number = 0.97,
+      ): SearchResult => {
+        const strategies = [
+          self.findExactMatch,
+          self.findAnchorMatch,
+          self.findSimilarityMatch,
+          self.findLevenshteinMatch,
+        ]
+
+        let bestResult: SearchResult = { index: -1, confidence: 0, strategy: "none" }
+
+        for (const strategy of strategies) {
+          const result = strategy(searchStr, content, startIndex, confidenceThreshold)
+          if (result.confidence > bestResult.confidence) {
+            bestResult = result
+          }
+        }
+
+        return bestResult
+      },
+    }
+  }));
+
+const self = searchStrategiesService.searchStrategiesService
+export const { findAnchorMatch, findExactMatch, findSimilarityMatch, findLevenshteinMatch, getTextFromChanges } = self
+```
 
 ## File: src/strategies/new-unified/edit-strategies.service.ts
-````typescript
+```typescript
 import { diff_match_patch } from "diff-match-patch"
 import type { EditResult, Hunk } from "./types"
 import Alvamind from 'alvamind'
@@ -1226,7 +842,7 @@ interface EditStrategiesService {
 
 export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'edit-strategies.service' })
   .use(searchStrategiesService)
-  .derive(({ searchStrategiesService: { validateEditResult } }) => ({
+  .derive(({ searchStrategiesService: { validateEditResult, getTextFromChanges } }) => ({
     editStrategiesService: {
 
       applyPatch: (originalContent: string, searchContent: string, replaceContent: string): string => {
@@ -1348,34 +964,11 @@ export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'ed
 
         const dmp = new diff_match_patch()
 
+        const beforeText = getTextFromChanges(hunk.changes, ["context", "remove"])
+        const afterText = getTextFromChanges(hunk.changes, ["context", "add"])
+
         // Calculate total lines in before block accounting for multi-line content
-        const beforeLineCount = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "remove")
-          .reduce((count, change) => count + change.content.split("\n").length, 0)
-
-        // Build BEFORE block (context + removals)
-        const beforeLines = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "remove")
-          .map((change) => {
-            if (change.originalLine) {
-              return change.originalLine
-            }
-            return change.indent ? change.indent + change.content : change.content
-          })
-
-        // Build AFTER block (context + additions)
-        const afterLines = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "add")
-          .map((change) => {
-            if (change.originalLine) {
-              return change.originalLine
-            }
-            return change.indent ? change.indent + change.content : change.content
-          })
-
-        // Convert to text with proper line endings
-        const beforeText = beforeLines.join("\n")
-        const afterText = afterLines.join("\n")
+        const beforeLineCount = beforeText.split("\n").length
 
         // Create and apply patch
         const patch = dmp.patch_make(beforeText, afterText)
@@ -1404,17 +997,8 @@ export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'ed
       // In-memory fallback strategy (replacing the Git-based one)
       applyInMemoryFallback: async (hunk: Hunk, content: string[]): Promise<EditResult> => {
         try {
-          // Extract the search and replace blocks from the hunk
-          const searchLines = hunk.changes
-            .filter((change) => change.type === "context" || change.type === "remove")
-            .map((change) => change.originalLine || (change.indent || "") + change.content);
-
-          const replaceLines = hunk.changes
-            .filter((change) => change.type === "context" || change.type === "add")
-            .map((change) => change.originalLine || (change.indent || "") + change.content);
-
-          const searchText = searchLines.join("\n");
-          const replaceText = replaceLines.join("\n");
+          const searchText = getTextFromChanges(hunk.changes, ["context", "remove"]);
+          const replaceText = getTextFromChanges(hunk.changes, ["context", "add"]);
           const originalText = content.join("\n");
 
           // Check if the search content exists in the original content
@@ -1500,10 +1084,10 @@ export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'ed
 
 const self = editStrategiesService.editStrategiesService
 export const { applyContextMatching, applyDMP, applyInMemoryFallback } = self
-````
+```
 
 ## File: src/strategies/new-unified/index.ts
-````typescript
+```typescript
 import { Diff, Hunk, Change } from "./types"
 import { ApplyDiffParams, DiffResult } from "../../types"
 import Alvamind from 'alvamind';
@@ -1531,7 +1115,7 @@ interface NewUnifiedDiffStrategyService {
 export const newUnifiedDiffStrategyService: NewUnifiedDiffStrategyService = Alvamind({ name: 'new-unified-diff-strategy.service' })
   .use(editStrategiesService)
   .use(searchStrategiesService)
-  .derive(({ editStrategiesService: { applyEdit }, searchStrategiesService: { findBestMatch, prepareSearchString } }) => ({
+  .derive(({ editStrategiesService: { applyEdit }, searchStrategiesService: { findBestMatch, getTextFromChanges } }) => ({
     newUnifiedDiffStrategyService: {
 
       confidenceThreshold: 1,
@@ -1758,7 +1342,7 @@ Your diff here
         };
 
         const processHunk = async (hunk: Hunk, content: string[]) => {
-          const contextStr = prepareSearchString(hunk.changes);
+          const contextStr = getTextFromChanges(hunk.changes, ["context", "remove"]);
           const searchResult = findBestMatch(contextStr, content, 0, confidenceThresholdValue);
 
           if (searchResult.confidence < confidenceThresholdValue) {
@@ -1883,10 +1467,10 @@ Your diff here
 
 const self = newUnifiedDiffStrategyService.newUnifiedDiffStrategyService
 export const { create, confidenceThreshold } = self
-````
+```
 
 ## File: package.json
-````json
+```json
 {
   "name": "diff-apply-alvamind",
   "version": "1.0.5",
@@ -1950,10 +1534,10 @@ export const { create, confidenceThreshold } = self
     "access": "public"
   }
 }
-````
+```
 
 ## File: src/strategies/multi-search-replace.service.ts
-````typescript
+```typescript
 // diff-apply-alvamind/src/strategies/multi-search-replace.service.ts
 import { DiffResult, ApplyDiffParams } from "../types";
 import { distance } from "fastest-levenshtein";
@@ -2314,4 +1898,4 @@ Your search/replace content here
       }
     }
   });
-````
+```

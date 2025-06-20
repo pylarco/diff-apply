@@ -1,6 +1,5 @@
 // diff-apply-alvamind/src/strategies/multi-search-replace.service.ts
 import { DiffResult, ApplyDiffParams } from "../types";
-import { distance } from "fastest-levenshtein";
 import Alvamind from 'alvamind';
 import { textService } from "../utils/extract-text.service";
 
@@ -16,31 +15,10 @@ const BUFFER_LINES = 40; // Number of extra context lines to show before and aft
 
 export const multiSearchReplaceService: MultiSearchReplaceService = Alvamind({ name: 'multi-search-replace.service' })
   .use(textService)
-  .derive(({ textService: { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers } }) => {
-    const self = {
-      getSimilarity: (original: string, search: string): number => {
-        if (search === "") {
-          return 1;
-        }
-
-        const normalizeStr = (str: string) => str.replace(/\s+/g, " ").trim();
-
-        const normalizedOriginal = normalizeStr(original);
-        const normalizedSearch = normalizeStr(search);
-
-        if (normalizedOriginal === normalizedSearch) {
-          return 1;
-        }
-
-        const dist = distance(normalizedOriginal, normalizedSearch);
-        const maxLength = Math.max(normalizedOriginal.length, normalizedSearch.length);
-        return 1 - dist / maxLength;
-      }
-    };
-
+  .derive(({ textService: { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers, getLevenshteinSimilarity } }) => {
     return {
       multiSearchReplaceService: {
-        getSimilarity: self.getSimilarity,
+        getSimilarity: getLevenshteinSimilarity,
         getToolDescription: (args: { cwd: string; toolOptions?: { [key: string]: string } }): string => {
           return `## apply_diff
 Description: Request to replace existing code using search and replace blocks. This tool allows for precise, surgical replacements to files by specifying what content to search for and what to replace it with. It supports single or multiple replacements in one call. The SEARCH section must exactly match existing content including whitespace and indentation.
@@ -231,7 +209,7 @@ Your search/replace content here
                 continue;
               }
               const originalChunk = resultLines.slice(exactStartIndex, exactEndIndex + 1).join("\n");
-              const similarity = self.getSimilarity(originalChunk, searchChunk);
+              const similarity = getLevenshteinSimilarity(originalChunk, searchChunk);
               if (similarity >= fuzzyThreshold) {
                 matchIndex = exactStartIndex;
                 bestMatchScore = similarity;
@@ -244,7 +222,7 @@ Your search/replace content here
 
             const checkMatch = (index: number) => {
               const originalChunk = resultLines.slice(index, index + searchLines.length).join("\n");
-              const similarity = self.getSimilarity(originalChunk, searchChunk);
+              const similarity = getLevenshteinSimilarity(originalChunk, searchChunk);
               if (similarity > bestMatchScore) {
                 bestMatchScore = similarity;
                 matchIndex = index;

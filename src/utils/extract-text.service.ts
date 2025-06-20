@@ -1,5 +1,7 @@
 // diff-apply-alvamind/src/extract-text.service.ts
 import Alvamind from 'alvamind';
+import { distance } from "fastest-levenshtein";
+import { compareTwoStrings } from "string-similarity";
 
 export const textService = Alvamind({ name: 'extract-text.service' })
   .decorate('textService', {
@@ -34,4 +36,23 @@ export const textService = Alvamind({ name: 'extract-text.service' })
       const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
       return processedLines.join(lineEnding);
     },
+
+    getLevenshteinSimilarity: (original: string, search: string): number => {
+      if (search === "") {
+        return 1;
+      }
+      const normalize = (str: string) => str.replace(/\s+/g, " ").trim();
+      const normalizedOriginal = normalize(original);
+      const normalizedSearch = normalize(search);
+      if (normalizedOriginal === normalizedSearch) {
+        return 1;
+      }
+      const dist = distance(normalizedOriginal, normalizedSearch);
+      const maxLength = Math.max(normalizedOriginal.length, normalizedSearch.length);
+      return 1 - dist / maxLength;
+    },
+
+    getStringSimilarity: (str1: string, str2: string): number => {
+      return compareTwoStrings(str1, str2);
+    }
   });

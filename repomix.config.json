@@ -33,6 +33,7 @@
       ".npmignore",
       ".gitignore",
       "node_modules",
+      "README.md",
       "src/strategies/__tests__",
       "src/strategies/new-unified/__tests__"
     ]

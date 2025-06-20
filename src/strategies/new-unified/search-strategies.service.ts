@@ -3,6 +3,7 @@ import { closest } from "fastest-levenshtein"
 import { diff_match_patch } from "diff-match-patch"
 import { Change, Hunk } from "./types"
 import Alvamind from 'alvamind';
+import { textService } from "../../utils/extract-text.service";
 
 export type SearchResult = {
   index: number
@@ -16,9 +17,9 @@ const DEFAULT_OVERLAP_SIZE = 3 // lines of overlap between windows
 const MAX_WINDOW_SIZE = 500 // maximum lines in a window
 
 export const searchStrategiesService = Alvamind({ name: 'search-strategies.service' })
-  .derive(() => ({
-
-    searchStrategiesService: {
+  .use(textService)
+  .derive(({ textService: { getStringSimilarity }}) => {
+    const serviceMethods = {
       // Helper function to calculate adaptive confidence threshold based on file size
       getAdaptiveThreshold: (contentLength: number, baseThreshold: number): number => {
         if (contentLength <= LARGE_FILE_THRESHOLD) {
@@ -55,11 +56,6 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
           .join("\n")
       },
 
-      // Helper function to evaluate similarity between two texts
-      evaluateSimilarity: (original: string, modified: string): number => {
-        return compareTwoStrings(original, modified)
-      },
-
       // Helper function to validate using diff-match-patch
       getDMPSimilarity: (original: string, modified: string): number => {
         const dmp = new diff_match_patch()
@@ -68,16 +64,16 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         const patches = dmp.patch_make(original, diffs)
         const [expectedText] = dmp.patch_apply(patches, original)
 
-        const similarity = self.evaluateSimilarity(expectedText, modified)
+        const similarity = getStringSimilarity(expectedText, modified)
         return similarity
       },
 
       // Helper function to validate edit results using hunk information
       validateEditResult: (hunk: Hunk, result: string): number => {
-        const expectedText = self.getTextFromChanges(hunk.changes, ["context", "add"])
-        const originalText = self.getTextFromChanges(hunk.changes, ["context", "remove"])
-        const similarity = self.getDMPSimilarity(expectedText, result)
-        const originalSimilarity = self.getDMPSimilarity(originalText, result)
+        const expectedText = serviceMethods.getTextFromChanges(hunk.changes, ["context", "add"])
+        const originalText = serviceMethods.getTextFromChanges(hunk.changes, ["context", "remove"])
+        const similarity = serviceMethods.getDMPSimilarity(expectedText, result)
+        const originalSimilarity = serviceMethods.getDMPSimilarity(originalText, result)
 
         if (originalSimilarity > 0.97 && similarity !== 1) {
           return 0.8 * similarity // Some confidence since we found the right location
@@ -88,9 +84,9 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
       // Helper function to validate context lines against original content
       validateContextLines: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number): number => {
         const contextLines = searchStr.split("\n").filter((line) => !line.startsWith("-"))
-        const similarity = self.evaluateSimilarity(contextLines.join("\n"), candidateStr)
-        const threshold = self.getAdaptiveThreshold(fullContent.length, confidenceThreshold)
-        const uniquenessScore = self.evaluateContentUniqueness(searchStr, fullContent)
+        const similarity = getStringSimilarity(contextLines.join("\n"), candidateStr)
+        const threshold = serviceMethods.getAdaptiveThreshold(fullContent.length, confidenceThreshold)
+        const uniquenessScore = serviceMethods.evaluateContentUniqueness(searchStr, fullContent)
         const uniquenessBoost = uniquenessScore * UNIQUE_CONTENT_BOOST
 
         return similarity < threshold ? similarity * 0.3 + uniquenessBoost : similarity + uniquenessBoost
@@ -98,8 +94,8 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
 
       // Helper function to calculate match confidence
       calculateMatchConfidence: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number): number => {
-        const dmpSimilarity = self.getDMPSimilarity(searchStr, candidateStr);
-        const contextSimilarity = self.validateContextLines(searchStr, candidateStr, fullContent, confidenceThreshold);
+        const dmpSimilarity = serviceMethods.getDMPSimilarity(searchStr, candidateStr);
+        const contextSimilarity = serviceMethods.validateContextLines(searchStr, candidateStr, fullContent, confidenceThreshold);
         return Math.min(dmpSimilarity, contextSimilarity);
       },
       
@@ -192,7 +188,7 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         confidenceThreshold: number = 0.97,
       ): SearchResult => {
         const searchLines = searchStr.split("\n")
-        const windows = self.createOverlappingWindows(content.slice(startIndex), searchLines.length)
+        const windows = serviceMethods.createOverlappingWindows(content.slice(startIndex), searchLines.length)
         const matches: (SearchResult & { windowIndex: number })[] = []
 
         windows.forEach((windowData, windowIndex) => {
@@ -207,7 +203,7 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
               )
               .join("\n")
 
-            const confidence = self.calculateMatchConfidence(searchStr, matchedContent, content, confidenceThreshold);
+            const confidence = serviceMethods.calculateMatchConfidence(searchStr, matchedContent, content, confidenceThreshold);
 
             matches.push({
               index: startIndex + windowData.startIndex + windowStr.slice(0, exactMatch).split("\n").length - 1,
@@ -218,7 +214,7 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
           }
         })
 
-        const combinedMatches = self.combineOverlappingMatches(matches)
+        const combinedMatches = serviceMethods.combineOverlappingMatches(matches)
         return combinedMatches.length > 0 ? combinedMatches[0] : { index: -1, confidence: 0, strategy: "exact" }
       },
 
@@ -235,9 +231,9 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
 
         for (let i = startIndex; i < content.length - searchLines.length + 1; i++) {
           const windowStr = content.slice(i, i + searchLines.length).join("\n")
-          const score = compareTwoStrings(searchStr, windowStr)
+          const score = getStringSimilarity(searchStr, windowStr)
           if (score > bestScore && score >= confidenceThreshold) {
-            const confidence = self.calculateMatchConfidence(searchStr, windowStr, content, confidenceThreshold);
+            const confidence = serviceMethods.calculateMatchConfidence(searchStr, windowStr, content, confidenceThreshold);
             const adjustedScore = confidence * score
 
             if (adjustedScore > bestScore) {
@@ -271,7 +267,7 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         if (candidates.length > 0) {
           const closestMatch = closest(searchStr, candidates)
           const index = startIndex + candidates.indexOf(closestMatch)
-          const confidence = self.calculateMatchConfidence(searchStr, closestMatch, content, confidenceThreshold);
+          const confidence = serviceMethods.calculateMatchConfidence(searchStr, closestMatch, content, confidenceThreshold);
           return {
             index: confidence === 0 ? -1 : index,
             confidence: index !== -1 ? confidence : 0,
@@ -315,7 +311,7 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         confidenceThreshold: number = 0.97,
       ): SearchResult => {
         const searchLines = searchStr.split("\n")
-        const { first, last } = self.identifyAnchors(searchStr)
+        const { first, last } = serviceMethods.identifyAnchors(searchStr)
 
         if (!first || !last) {
           return { index: -1, confidence: 0, strategy: "anchor" }
@@ -359,9 +355,9 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         // Validate the context
         const expectedContext = searchLines.slice(searchLines.indexOf(first) + 1, searchLines.indexOf(last)).join("\n")
         const actualContext = content.slice(firstIndex + 1, lastIndex).join("\n")
-        const contextSimilarity = self.evaluateSimilarity(expectedContext, actualContext)
+        const contextSimilarity = getStringSimilarity(expectedContext, actualContext)
 
-        if (contextSimilarity < self.getAdaptiveThreshold(content.length, confidenceThreshold)) {
+        if (contextSimilarity < serviceMethods.getAdaptiveThreshold(content.length, confidenceThreshold)) {
           return { index: -1, confidence: 0, strategy: "anchor" }
         }
 
@@ -382,10 +378,10 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         confidenceThreshold: number = 0.97,
       ): SearchResult => {
         const strategies = [
-          self.findExactMatch,
-          self.findAnchorMatch,
-          self.findSimilarityMatch,
-          self.findLevenshteinMatch,
+          serviceMethods.findExactMatch,
+          serviceMethods.findAnchorMatch,
+          serviceMethods.findSimilarityMatch,
+          serviceMethods.findLevenshteinMatch,
         ]
 
         let bestResult: SearchResult = { index: -1, confidence: 0, strategy: "none" }
@@ -400,7 +396,8 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         return bestResult
       },
     }
-  }));
+    return { searchStrategiesService: serviceMethods };
+  });
 
 const self = searchStrategiesService.searchStrategiesService
 export const { findAnchorMatch, findExactMatch, findSimilarityMatch, findLevenshteinMatch, getTextFromChanges } = self
