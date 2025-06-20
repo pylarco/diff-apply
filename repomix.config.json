@@ -20,7 +20,10 @@
       "sortByChangesMaxCommits": 100
     }
   },
-  "include": [],
+  "include": [
+    "src/strategies/__tests__",
+    // "src/strategies/new-unified/__tests__"
+  ],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,
@@ -34,8 +37,8 @@
       ".gitignore",
       "node_modules",
       "README.md",
-      "src/strategies/__tests__",
-      "src/strategies/new-unified/__tests__"
+      // "src/strategies/__tests__",
+      // "src/strategies/new-unified/__tests__"
     ]
   },
   "security": {

@@ -1,814 +1,3248 @@
-An excellent goal! Refactoring for DRY principles not only reduces code size but also improves maintainability and consistency. I've identified an opportunity to consolidate text similarity logic, which is currently duplicated across different strategy services.
+I will split the provided test files into multiple, more granular test files and relocate them to the `test/unit` directory as requested.
 
-By centralizing the similarity calculation functions into the existing `textService` utility, we can remove redundant code from both the `multi-search-replace.service.ts` and `new-unified/search-strategies.service.ts` files. This change will make the codebase cleaner and more modular without altering any functionality.
+First, I'll mark the original test files for deletion.
 
-Here are the optimized code changes:
+```typescript // src/strategies/__tests__/multi-search-replace.test.ts
+//TODO: delete this file
+```
 
-```typescript
-// src/strategies/multi-search-replace.service.ts
-// diff-apply-alvamind/src/strategies/multi-search-replace.service.ts
-import { DiffResult, ApplyDiffParams } from "../types";
-import Alvamind from 'alvamind';
-import { textService } from "../utils/extract-text.service";
+```typescript // src/strategies/__tests__/new-unified.test.ts
+//TODO: delete this file
+```
 
-interface MultiSearchReplaceService {
-  multiSearchReplaceService: {
-    getSimilarity(original: string, search:string): number;
-    getToolDescription(args: { cwd: string; toolOptions?: { [key: string]: string } }): string;
-    applyDiff(params: ApplyDiffParams): DiffResult;
+```typescript // src/strategies/__tests__/search-replace.test.ts
+//TODO: delete this file
+```
+
+```typescript // src/strategies/__tests__/unified.test.ts
+//TODO: delete this file
+```
+
+Now, here are the new, split test files.
+
+### New tests for `multi-search-replace`
+
+```typescript // test/unit/strategies/multi-search-replace/apply-diff.test.ts
+import { applyDiff } from "../../../../src/strategies/multi-search-replace.service";
+
+describe("multiSearchReplaceService: applyDiff", () => {
+  describe("exact matching", () => {
+    it("should replace matching content", async () => {
+      const originalContent = 'function hello() {\n    console.log("hello")\n}\n'
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+function hello() {
+    console.log("hello")
+}
+=======
+function hello() {
+    console.log("hello world")
+}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe('function hello() {\n    console.log("hello world")\n}\n')
+      }
+    })
+
+    it("should match content with different surrounding whitespace", async () => {
+      const originalContent = "\nfunction example() {\n    return 42;\n}\n\n"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+function example() {
+    return 42;
+}
+=======
+function example() {
+    return 43;
+}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe("\nfunction example() {\n    return 43;\n}\n\n")
+      }
+    })
+
+    it("should match content with different indentation in search block", async () => {
+      const originalContent = "    function test() {\n        return true;\n    }\n"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+function test() {
+    return true;
+}
+=======
+function test() {
+    return false;
+}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe("    function test() {\n        return false;\n    }\n")
+      }
+    })
+
+    it("should handle tab-based indentation", async () => {
+      const originalContent = "function test() {\n\treturn true;\n}\n"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+function test() {
+\treturn true;
+}
+=======
+function test() {
+\treturn false;
+}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe("function test() {\n\treturn false;\n}\n")
+      }
+    })
+
+    it("should preserve mixed tabs and spaces", async () => {
+      const originalContent = "\tclass Example {\n\t    constructor() {\n\t\tthis.value = 0;\n\t    }\n\t}"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+\tclass Example {
+\t    constructor() {
+\t\tthis.value = 0;
+\t    }
+\t}
+=======
+\tclass Example {
+\t    constructor() {
+\t\tthis.value = 1;
+\t    }
+\t}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(
+          "\tclass Example {\n\t    constructor() {\n\t\tthis.value = 1;\n\t    }\n\t}",
+        )
+      }
+    })
+
+    it("should handle additional indentation with tabs", async () => {
+      const originalContent = "\tfunction test() {\n\t\treturn true;\n\t}"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+function test() {
+\treturn true;
+}
+=======
+function test() {
+\t// Add comment
+\treturn false;
+}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe("\tfunction test() {\n\t\t// Add comment\n\t\treturn false;\n\t}")
+      }
+    })
+
+    it("should preserve exact indentation characters when adding lines", async () => {
+      const originalContent = "\tfunction test() {\n\t\treturn true;\n\t}"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+\tfunction test() {
+\t\treturn true;
+\t}
+=======
+\tfunction test() {
+\t\t// First comment
+\t\t// Second comment
+\t\treturn true;
+\t}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(
+          "\tfunction test() {\n\t\t// First comment\n\t\t// Second comment\n\t\treturn true;\n\t}",
+        )
+      }
+    })
+
+    it("should handle Windows-style CRLF line endings", async () => {
+      const originalContent = "function test() {\r\n    return true;\r\n}\r\n"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+function test() {
+    return true;
+}
+=======
+function test() {
+    return false;
+}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe("function test() {\r\n    return false;\r\n}\r\n")
+      }
+    })
+
+    it("should return false if search content does not match", async () => {
+      const originalContent = 'function hello() {\n    console.log("hello")\n}\n'
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+function hello() {
+    console.log("wrong")
+}
+=======
+function hello() {
+    console.log("hello world")
+}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(false)
+    })
+
+    it("should return false if diff format is invalid", async () => {
+      const originalContent = 'function hello() {\n    console.log("hello")\n}\n'
+      const diffContent = `test.ts\nInvalid diff format`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(false)
+    })
+
+    it("should handle multiple lines with proper indentation", async () => {
+      const originalContent =
+        "class Example {\n    constructor() {\n        this.value = 0\n    }\n\n    getValue() {\n        return this.value\n    }\n}\n"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+    getValue() {
+        return this.value
+    }
+=======
+    getValue() {
+        // Add logging
+        console.log("Getting value")
+        return this.value
+    }
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(
+          'class Example {\n    constructor() {\n        this.value = 0\n    }\n\n    getValue() {\n        // Add logging\n        console.log("Getting value")\n        return this.value\n    }\n}\n',
+        )
+      }
+    })
+
+    it("should preserve whitespace exactly in the output", async () => {
+      const originalContent = "    indented\n        more indented\n    back\n"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+    indented
+        more indented
+    back
+=======
+    modified
+        still indented
+    end
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe("    modified\n        still indented\n    end\n")
+      }
+    })
+
+    it("should preserve indentation when adding new lines after existing content", async () => {
+      const originalContent = "				onScroll={() => updateHighlights()}"
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+				onScroll={() => updateHighlights()}
+=======
+				onScroll={() => updateHighlights()}
+				onDragOver={(e) => {
+					e.preventDefault()
+					e.stopPropagation()
+				}}
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(
+          "				onScroll={() => updateHighlights()}\n				onDragOver={(e) => {\n					e.preventDefault()\n					e.stopPropagation()\n				}}",
+        )
+      }
+    })
+
+    it("should handle varying indentation levels correctly", async () => {
+      const originalContent = `
+class Example {
+    constructor() {
+        this.value = 0;
+        if (true) {
+            this.init();
+        }
+    }
+}`.trim()
+
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+    class Example {
+        constructor() {
+            this.value = 0;
+            if (true) {
+                this.init();
+            }
+        }
+    }
+=======
+    class Example {
+        constructor() {
+            this.value = 1;
+            if (true) {
+                this.init();
+                this.setup();
+                this.validate();
+            }
+        }
+    }
+>>>>>>> REPLACE`.trim()
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(
+          `
+class Example {
+    constructor() {
+        this.value = 1;
+        if (true) {
+            this.init();
+            this.setup();
+            this.validate();
+        }
+    }
+}`.trim(),
+        )
+      }
+    })
+
+    it("should handle mixed indentation styles in the same file", async () => {
+      const originalContent = `class Example {
+    constructor() {
+        this.value = 0;
+        if (true) {
+            this.init();
+        }
+    }
+}`.trim()
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+    constructor() {
+        this.value = 0;
+        if (true) {
+        this.init();
+        }
+    }
+=======
+    constructor() {
+        this.value = 1;
+        if (true) {
+        this.init();
+        this.validate();
+        }
+    }
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(`class Example {
+    constructor() {
+        this.value = 1;
+        if (true) {
+        this.init();
+        this.validate();
+        }
+    }
+}`)
+      }
+    })
+
+    it("should handle Python-style significant whitespace", async () => {
+      const originalContent = `def example():
+    if condition:
+        do_something()
+        for item in items:
+            process(item)
+    return True`.trim()
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+    if condition:
+        do_something()
+        for item in items:
+            process(item)
+=======
+    if condition:
+        do_something()
+        while items:
+            item = items.pop()
+            process(item)
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(`def example():
+    if condition:
+        do_something()
+        while items:
+            item = items.pop()
+            process(item)
+    return True`)
+      }
+    })
+
+    it("should preserve empty lines with indentation", async () => {
+      const originalContent = `function test() {
+    const x = 1;
+
+    if (x) {
+        return true;
+    }
+}`.trim()
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+    const x = 1;
+
+    if (x) {
+=======
+    const x = 1;
+
+    // Check x
+    if (x) {
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(`function test() {
+    const x = 1;
+
+    // Check x
+    if (x) {
+        return true;
+    }
+}`)
+      }
+    })
+
+    it("should handle indentation when replacing entire blocks", async () => {
+      const originalContent = `class Test {
+    method() {
+        if (true) {
+            console.log("test");
+        }
+    }
+}`.trim()
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+    method() {
+        if (true) {
+            console.log("test");
+        }
+    }
+=======
+    method() {
+        try {
+            if (true) {
+                console.log("test");
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(`class Test {
+    method() {
+        try {
+            if (true) {
+                console.log("test");
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+}`)
+      }
+    })
+
+    it("should handle negative indentation relative to search content", async () => {
+      const originalContent = `class Example {
+    constructor() {
+        if (true) {
+            this.init();
+            this.setup();
+        }
+    }
+}`.trim()
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+            this.init();
+            this.setup();
+=======
+        this.init();
+        this.setup();
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(`class Example {
+    constructor() {
+        if (true) {
+        this.init();
+        this.setup();
+        }
+    }
+}`)
+      }
+    })
+
+    it("should handle extreme negative indentation (no indent)", async () => {
+      const originalContent = `class Example {
+    constructor() {
+        if (true) {
+            this.init();
+        }
+    }
+}`.trim()
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+            this.init();
+=======
+this.init();
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(`class Example {
+    constructor() {
+        if (true) {
+this.init();
+        }
+    }
+}`)
+      }
+    })
+
+    it("should handle mixed indentation changes in replace block", async () => {
+      const originalContent = `class Example {
+    constructor() {
+        if (true) {
+            this.init();
+            this.setup();
+            this.validate();
+        }
+    }
+}`.trim()
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+            this.init();
+            this.setup();
+            this.validate();
+=======
+        this.init();
+            this.setup();
+    this.validate();
+>>>>>>> REPLACE`
+
+      const result = await applyDiff(originalContent, diffContent)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(`class Example {
+    constructor() {
+        if (true) {
+        this.init();
+            this.setup();
+    this.validate();
+        }
+    }
+}`)
+      }
+    })
+
+    it("should find matches from middle out", async () => {
+      const originalContent = `
+function one() {
+    return "target";
+}
+
+function two() {
+    return "target";
+}
+
+function three() {
+    return "target";
+}
+
+function four() {
+    return "target";
+}
+
+function five() {
+    return "target";
+}`.trim()
+
+      const diffContent = `test.ts
+<<<<<<< SEARCH
+    return "target";
+=======
+    return "updated";
+>>>>>>> REPLACE`
+
+      // Search around the middle (function three)
+      // Even though all functions contain the target text,
+      // it should match the one closest to line 9 first
+      const result = await applyDiff(originalContent, diffContent, 0.9, 5, 9, 9)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.content).toBe(`function one() {
+    return "target";
+}
+
+function two() {
+    return "target";
+}
+
+function three() {
+    return "updated";
+}
+
+function four() {
+    return "target";
+}
+
+function five() {
+    return "target";
+}`)
+      }
+    })
+  });
+});
+```
+
+```typescript // test/unit/strategies/multi-search-replace/get-tool-description.test.ts
+import { getToolDescription } from "../../../../src/strategies/multi-search-replace.service";
+
+describe("multiSearchReplaceService: getToolDescription", () => {
+  it("should include the current working directory", async () => {
+    const cwd = "/test/dir"
+    const description = await getToolDescription({ cwd })
+    expect(description).toContain(`relative to the current working directory ${cwd}`)
+  })
+
+  it("should include required format elements", async () => {
+    const description = await getToolDescription({ cwd: "/test" })
+    expect(description).toContain("<<<<<<< SEARCH")
+    expect(description).toContain("=======")
+    expect(description).toContain(">>>>>>> REPLACE")
+    expect(description).toContain("<apply_diff>")
+    expect(description).toContain("</apply_diff>")
+  })
+})
+```
+
+### New tests for `new-unified`
+
+```typescript // test/unit/strategies/new-unified/apply-diff.test.ts
+import { create } from "../../../../src/strategies/new-unified"
+
+describe("new-unified: applyDiff", () => {
+  let strategy: ReturnType<typeof create>
+
+  beforeEach(() => {
+    strategy = create(0.97)
+  })
+
+  it("should apply simple diff correctly", async () => {
+    const original = `line1
+line2
+line3`
+
+    const diff = `--- a/file.txt
++++ b/file.txt
+@@ ... @@
+ line1
++new line
+ line2
+-line3
++modified line3`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: diff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`line1
+new line
+line2
+modified line3`)
+    }
+  })
+
+  it("should handle multiple hunks", async () => {
+    const original = `line1
+line2
+line3
+line4
+line5`
+
+    const diff = `--- a/file.txt
++++ b/file.txt
+@@ ... @@
+ line1
++new line
+ line2
+-line3
++modified line3
+@@ ... @@
+ line4
+-line5
++modified line5
++new line at end`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: diff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`line1
+new line
+line2
+modified line3
+line4
+modified line5
+new line at end`)
+    }
+  })
+
+  it("should handle complex large", async () => {
+    const original = `line1
+line2
+line3
+line4
+line5
+line6
+line7
+line8
+line9
+line10`
+
+    const diff = `--- a/file.txt
++++ b/file.txt
+@@ ... @@
+ line1
++header line
++another header
+ line2
+-line3
+-line4
++modified line3
++modified line4
++extra line
+@@ ... @@
+ line6
++middle section
+ line7
+-line8
++changed line8
++bonus line
+@@ ... @@
+ line9
+-line10
++final line
++very last line`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: diff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`line1
+header line
+another header
+line2
+modified line3
+modified line4
+extra line
+line5
+line6
+middle section
+line7
+changed line8
+bonus line
+line9
+final line
+very last line`)
+    }
+  })
+
+  it("should handle indentation changes", async () => {
+    const original = `first line
+  indented line
+    double indented line
+  back to single indent
+no indent
+  indented again
+    double indent again
+      triple indent
+  back to single
+last line`
+
+    const diff = `--- original
++++ modified
+@@ ... @@
+ first line
+   indented line
++	tab indented line
++  new indented line
+     double indented line
+   back to single indent
+ no indent
+   indented again
+     double indent again
+-      triple indent
++      hi there mate
+   back to single
+ last line`
+
+    const expected = `first line
+  indented line
+	tab indented line
+  new indented line
+    double indented line
+  back to single indent
+no indent
+  indented again
+    double indent again
+      hi there mate
+  back to single
+last line`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: diff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(expected)
+    }
+  })
+
+  it("should handle high level edits", async () => {
+    const original = `def factorial(n):
+    if n == 0:
+        return 1
+    else:
+        return n * factorial(n-1)`
+    const diff = `@@ ... @@
+-def factorial(n):
+-    if n == 0:
+-        return 1
+-    else:
+-        return n * factorial(n-1)
++def factorial(number):
++    if number == 0:
++        return 1
++    else:
++        return number * factorial(number-1)`
+
+    const expected = `def factorial(number):
+    if number == 0:
+        return 1
+    else:
+        return number * factorial(number-1)`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: diff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(expected)
+    }
+  })
+
+  it("it should handle very complex edits", async () => {
+    const original = `//Initialize the array that will hold the primes
+var primeArray = [];
+/*Write a function that checks for primeness and
+ pushes those values to t*he array*/
+function PrimeCheck(candidate){
+  isPrime = true;
+  for(var i = 2; i < candidate && isPrime; i++){
+    if(candidate%i === 0){
+      isPrime = false;
+    } else {
+      isPrime = true;
+    }
+  }
+  if(isPrime){
+    primeArray.push(candidate);
+  }
+  return primeArray;
+}
+/*Write the code that runs the above until the
+ l ength of the array equa*ls the number of primes
+ desired*/
+
+var numPrimes = prompt("How many primes?");
+
+//Display the finished array of primes
+
+//for loop starting at 2 as that is the lowest prime number keep going until the array is as long as we requested
+for (var i = 2; primeArray.length < numPrimes; i++) {
+  PrimeCheck(i); //
+}
+console.log(primeArray);
+`
+
+    const diff = `--- test_diff.js
++++ test_diff.js
+@@ ... @@
+-//Initialize the array that will hold the primes
+ var primeArray = [];
+-/*Write a function that checks for primeness and
+- pushes those values to t*he array*/
+ function PrimeCheck(candidate){
+   isPrime = true;
+   for(var i = 2; i < candidate && isPrime; i++){
+@@ ... @@
+   return primeArray;
+ }
+-/*Write the code that runs the above until the
+-  l ength of the array equa*ls the number of primes
+-  desired*/
+
+ var numPrimes = prompt("How many primes?");
+
+-//Display the finished array of primes
+-
+-//for loop starting at 2 as that is the lowest prime number keep going until the array is as long as we requested
+ for (var i = 2; primeArray.length < numPrimes; i++) {
+-  PrimeCheck(i); //
++  PrimeCheck(i);
+ }
+ console.log(primeArray);`
+
+    const expected = `var primeArray = [];
+function PrimeCheck(candidate){
+  isPrime = true;
+  for(var i = 2; i < candidate && isPrime; i++){
+    if(candidate%i === 0){
+      isPrime = false;
+    } else {
+      isPrime = true;
+    }
+  }
+  if(isPrime){
+    primeArray.push(candidate);
+  }
+  return primeArray;
+}
+
+var numPrimes = prompt("How many primes?");
+
+for (var i = 2; primeArray.length < numPrimes; i++) {
+  PrimeCheck(i);
+}
+console.log(primeArray);
+`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: diff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(expected)
+    }
+  })
+})
+```
+
+```typescript // test/unit/strategies/new-unified/constructor.test.ts
+import { create } from "../../../../src/strategies/new-unified"
+
+describe("new-unified: constructor", () => {
+  it("should use default confidence threshold when not provided", () => {
+    const defaultStrategy = create()
+    expect(defaultStrategy.confidenceThreshold).toBe(1)
+  })
+
+  it("should use provided confidence threshold", () => {
+    const customStrategy = create(0.85)
+    expect(customStrategy.confidenceThreshold).toBe(0.85)
+  })
+
+  it("should enforce minimum confidence threshold", () => {
+    const lowStrategy = create(0.7) // Below minimum of 0.8
+    expect(lowStrategy.confidenceThreshold).toBe(0.8)
+  })
+})
+```
+
+```typescript // test/unit/strategies/new-unified/edge-cases.test.ts
+import { create } from "../../../../src/strategies/new-unified"
+
+describe("new-unified: error handling and edge cases", () => {
+  let strategy: ReturnType<typeof create>
+
+  beforeEach(() => {
+    strategy = create(0.97)
+  })
+
+  it("should reject completely invalid diff format", async () => {
+    const original = "line1\nline2\nline3"
+    const invalidDiff = "this is not a diff at all"
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: invalidDiff })
+    expect(result.success).toBe(false)
+  })
+
+  it("should reject diff with invalid hunk format", async () => {
+    const original = "line1\nline2\nline3"
+    const invalidHunkDiff = `--- a/file.txt
++++ b/file.txt
+invalid hunk header
+ line1
+-line2
++new line`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: invalidHunkDiff })
+    expect(result.success).toBe(false)
+  })
+
+  it("should fail when diff tries to modify non-existent content", async () => {
+    const original = "line1\nline2\nline3"
+    const nonMatchingDiff = `--- a/file.txt
++++ b/file.txt
+@@ ... @@
+ line1
+-nonexistent line
++new line
+ line3`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: nonMatchingDiff })
+    expect(result.success).toBe(false)
+  })
+
+  it("should handle overlapping hunks", async () => {
+    const original = `line1
+line2
+line3
+line4
+line5`
+    const overlappingDiff = `--- a/file.txt
++++ b/file.txt
+@@ ... @@
+ line1
+ line2
+-line3
++modified3
+ line4
+@@ ... @@
+ line2
+-line3
+-line4
++modified3and4
+ line5`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: overlappingDiff })
+    expect(result.success).toBe(false)
+  })
+
+  it("should handle empty lines modifications", async () => {
+    const original = `line1
+
+line3
+
+line5`
+    const emptyLinesDiff = `--- a/file.txt
++++ b/file.txt
+@@ ... @@
+ line1
+
+-line3
++line3modified
+
+ line5`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: emptyLinesDiff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`line1
+
+line3modified
+
+line5`)
+    }
+  })
+
+  it("should handle mixed line endings in diff", async () => {
+    const original = "line1\r\nline2\nline3\r\n"
+    const mixedEndingsDiff = `--- a/file.txt
++++ b/file.txt
+@@ ... @@
+ line1\r
+-line2
++modified2\r
+ line3`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: mixedEndingsDiff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("line1\r\nmodified2\r\nline3\r\n")
+    }
+  })
+
+  it("should handle partial line modifications", async () => {
+    const original = "const value = oldValue + 123;"
+    const partialDiff = `--- a/file.txt
++++ b/file.txt
+@@ ... @@
+-const value = oldValue + 123;
++const value = newValue + 123;`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: partialDiff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("const value = newValue + 123;")
+    }
+  })
+
+  it("should handle slightly malformed but recoverable diff", async () => {
+    const original = "line1\nline2\nline3"
+    // Missing space after --- and +++
+    const slightlyBadDiff = `---a/file.txt
++++b/file.txt
+@@ ... @@
+ line1
+-line2
++new line
+ line3`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: slightlyBadDiff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("line1\nnew line\nline3")
+    }
+  })
+})
+```
+
+```typescript // test/unit/strategies/new-unified/get-tool-description.test.ts
+import { create } from "../../../../src/strategies/new-unified"
+
+describe("new-unified: getToolDescription", () => {
+  let strategy: ReturnType<typeof create>
+
+  beforeEach(() => {
+    strategy = create(0.97)
+  })
+
+  it("should return tool description with correct cwd", () => {
+    const cwd = "/test/path"
+    const description = strategy.getToolDescription({ cwd })
+
+    expect(description).toContain("apply_diff Tool - Generate Precise Code Changes")
+    expect(description).toContain(cwd)
+    expect(description).toContain("Step-by-Step Instructions")
+    expect(description).toContain("Requirements")
+    expect(description).toContain("Examples")
+    expect(description).toContain("Parameters:")
+  })
+})
+```
+
+```typescript // test/unit/strategies/new-unified/hunk-splitting.test.ts
+import { create } from "../../../../src/strategies/new-unified"
+
+describe("new-unified: hunk splitting", () => {
+  let strategy: ReturnType<typeof create>
+
+  beforeEach(() => {
+    strategy = create(0.97)
+  })
+
+  it("should handle large diffs with multiple non-contiguous changes", async () => {
+    const original = `import { readFile } from 'fs';
+import { join } from 'path';
+import { Logger } from './logger';
+
+const logger = new Logger();
+
+async function processFile(filePath: string) {
+  try {
+    const data = await readFile(filePath, 'utf8');
+    logger.info('File read successfully');
+    return data;
+  } catch (error) {
+    logger.error('Failed to read file:', error);
+    throw error;
+  }
+}
+
+function validateInput(input: string): boolean {
+  if (!input) {
+    logger.warn('Empty input received');
+    return false;
+  }
+  return input.length > 0;
+}
+
+async function writeOutput(data: string) {
+  logger.info('Processing output');
+  // TODO: Implement output writing
+  return Promise.resolve();
+}
+
+function parseConfig(configPath: string) {
+  logger.debug('Reading config from:', configPath);
+  // Basic config parsing
+  return {
+    enabled: true,
+    maxRetries: 3
   };
 }
 
-const BUFFER_LINES = 40; // Number of extra context lines to show before and after matches
+export {
+  processFile,
+  validateInput,
+  writeOutput,
+  parseConfig
+};`
 
-export const multiSearchReplaceService: MultiSearchReplaceService = Alvamind({ name: 'multi-search-replace.service' })
-  .use(textService)
-  .derive(({ textService: { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers, getLevenshteinSimilarity } }) => {
-    return {
-      multiSearchReplaceService: {
-        getSimilarity: getLevenshteinSimilarity,
-        getToolDescription: (args: { cwd: string; toolOptions?: { [key: string]: string } }): string => {
-          return `## apply_diff
-Description: Request to replace existing code using search and replace blocks. This tool allows for precise, surgical replacements to files by specifying what content to search for and what to replace it with. It supports single or multiple replacements in one call. The SEARCH section must exactly match existing content including whitespace and indentation.
+    const diff = `--- a/file.ts
++++ b/file.ts
+@@ ... @@
+-import { readFile } from 'fs';
++import { readFile, writeFile } from 'fs';
+ import { join } from 'path';
+-import { Logger } from './logger';
++import { Logger } from './utils/logger';
++import { Config } from './types';
 
-Parameters:
-- path: (required) The path of the file to modify (relative to the current working directory ${args.cwd})
-- diff: (required) The search/replace block(s) defining the changes.
-- start_line: (optional) The line number where the search block starts. Use only for a single replacement.
-- end_line: (optional) The line number where the search block ends. Use only for a single replacement.
+-const logger = new Logger();
++const logger = new Logger('FileProcessor');
 
-Diff format:
+ async function processFile(filePath: string) {
+   try {
+     const data = await readFile(filePath, 'utf8');
+-    logger.info('File read successfully');
++    logger.info(\`File \${filePath} read successfully\`);
+     return data;
+   } catch (error) {
+-    logger.error('Failed to read file:', error);
++    logger.error(\`Failed to read file \${filePath}:\`, error);
+     throw error;
+   }
+ }
 
-**Mode 1: Multiple replacements (or single with embedded line numbers)**
-Each block must contain its own line numbers.
-\`\`\`
-<<<<<<< SEARCH
-:start_line: (required) The line number of original content where the search block starts.
-:end_line: (required) The line number of original content where the search block ends.
--------
-[exact content to find including whitespace]
-=======
-[new content to replace with]
->>>>>>> REPLACE
-... more blocks ...
-\`\`\`
+ function validateInput(input: string): boolean {
+   if (!input) {
+-    logger.warn('Empty input received');
++    logger.warn('Validation failed: Empty input received');
+     return false;
+   }
+-  return input.length > 0;
++  return input.trim().length > 0;
+ }
 
-**Mode 2: Single replacement (using top-level start_line/end_line parameters)**
-The diff block should not contain line numbers.
-\`\`\`
-<<<<<<< SEARCH
-[exact content to find including whitespace]
-=======
-[new content to replace with]
->>>>>>> REPLACE
-\`\`\`
+-async function writeOutput(data: string) {
+-  logger.info('Processing output');
+-  // TODO: Implement output writing
+-  return Promise.resolve();
++async function writeOutput(data: string, outputPath: string) {
++  try {
++    await writeFile(outputPath, data, 'utf8');
++    logger.info(\`Output written to \${outputPath}\`);
++  } catch (error) {
++    logger.error(\`Failed to write output to \${outputPath}:\`, error);
++    throw error;
++  }
+ }
 
-Example (Mode 1 - multiple edits):
-\`\`\`
-<<<<<<< SEARCH
-:start_line:2
-:end_line:2
--------
-sum = 0
-=======
-total = 0
->>>>>>> REPLACE
+-function parseConfig(configPath: string) {
+-  logger.debug('Reading config from:', configPath);
+-  // Basic config parsing
+-  return {
+-    enabled: true,
+-    maxRetries: 3
+-  };
++async function parseConfig(configPath: string): Promise<Config> {
++  try {
++    const configData = await readFile(configPath, 'utf8');
++    logger.debug(\`Reading config from \${configPath}\`);
++    return JSON.parse(configData);
++  } catch (error) {
++    logger.error(\`Failed to parse config from \${configPath}:\`, error);
++    throw error;
++  }
+ }
 
-<<<<<<< SEARCH
-:start_line:4
-:end_line:5
--------
-total += item
-return total
-=======
-sum += item
-return sum
->>>>>>> REPLACE
-\`\`\`
+ export {
+   processFile,
+   validateInput,
+   writeOutput,
+-  parseConfig
++  parseConfig,
++  type Config
+ };`
 
-Example (Mode 2 - single edit with params):
-(Use with <start_line>1</start_line> and <end_line>5</end_line>)
-\`\`\`
-<<<<<<< SEARCH
-def calculate_total(items):
-total = 0
-for item in items:
-total += item
-return total
-=======
-def calculate_total(items):
-"""Calculate total with 10% markup"""
-return sum(item * 1.1 for item in items)
->>>>>>> REPLACE
-\`\`\`
+    const expected = `import { readFile, writeFile } from 'fs';
+import { join } from 'path';
+import { Logger } from './utils/logger';
+import { Config } from './types';
 
-Usage:
-<apply_diff>
-<path>File path here</path>
-<diff>
-Your search/replace content here
-</diff>
-<!-- For Mode 2, add start/end line numbers here -->
-</apply_diff>`;
-        },
+const logger = new Logger('FileProcessor');
 
-        applyDiff: (
-          {
-            originalContent,
-            diffContent,
-            fuzzyThreshold = 1.0,
-            bufferLines = BUFFER_LINES,
-            startLine: paramStartLine,
-            endLine: paramEndLine,
-          }: ApplyDiffParams
-        ): DiffResult => {
-          let replacements;
-          const initialResultLines = originalContent.split(/\r?\n/);
-
-          if (paramStartLine !== undefined && paramEndLine !== undefined) {
-            // Mode: single search/replace from search-replace.service
-            const match = diffContent.match(/<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/);
-            if (!match) {
-              return {
-                success: false,
-                error: `Invalid diff format - missing required SEARCH/REPLACE sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n[search content]\\n=======\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include both SEARCH and REPLACE sections with correct markers`,
-              };
-            }
-            const [_, searchBody, replaceBody] = match;
-            replacements = [{
-              startLine: paramStartLine,
-              endLine: paramEndLine,
-              searchContent: searchBody,
-              replaceContent: replaceBody,
-            }];
-          } else {
-            // Mode: multi search/replace
-            const matches = [...diffContent.matchAll(
-              /<<<<<<< SEARCH\n(:start_line:\s*(\d+)\n){0,1}(:end_line:\s*(\d+)\n){0,1}(-------\n){0,1}([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/g,
-            )];
-
-            if (matches.length === 0) {
-              return {
-                success: false,
-                error: `Invalid diff format - missing required sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n:start_line: start line\\n:end_line: end line\\n-------\\n[search content]\\n=======\\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include start_line/end_line/SEARCH/REPLACE sections with correct markers`,
-              };
-            }
-            replacements = matches
-              .map((match) => ({
-                startLine: Number(match[2] ?? 0),
-                endLine: Number(match[4] ?? initialResultLines.length),
-                searchContent: match[6],
-                replaceContent: match[7],
-              }))
-              .sort((a, b) => a.startLine - b.startLine);
-          }
-
-          const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n";
-          let resultLines = [...initialResultLines];
-          let delta = 0;
-          let diffResults: DiffResult[] = [];
-          let appliedCount = 0;
-
-          for (let { searchContent, replaceContent, startLine, endLine } of replacements) {
-            startLine += startLine === 0 ? 0 : delta;
-            endLine += delta;
-
-            if (everyLineHasLineNumbers(searchContent) && everyLineHasLineNumbers(replaceContent)) {
-              searchContent = stripLineNumbers(searchContent);
-              replaceContent = stripLineNumbers(replaceContent);
-            }
-
-            const searchLines = searchContent === "" ? [] : searchContent.split(/\r?\n/);
-            const replaceLines = replaceContent === "" ? [] : replaceContent.split(/\r?\n/);
-
-            if (searchLines.length === 0 && !startLine) {
-              diffResults.push({
-                success: false,
-                error: `Empty search content requires start_line to be specified\n\nDebug Info:\n- Empty search content is only valid for insertions at a specific line\n- For insertions, specify the line number where content should be inserted`,
-              });
-              continue;
-            }
-
-            if (searchLines.length === 0 && startLine && endLine && startLine !== endLine) {
-              diffResults.push({
-                success: false,
-                error: `Empty search content requires start_line and end_line to be the same (got ${startLine}-${endLine})\n\nDebug Info:\n- Empty search content is only valid for insertions at a specific line\n- For insertions, use the same line number for both start_line and end_line`,
-              });
-              continue;
-            }
-
-            let matchIndex = -1;
-            let bestMatchScore = 0;
-            let bestMatchContent = "";
-            const searchChunk = searchLines.join("\n");
-
-            let searchStartIndex = 0;
-            let searchEndIndex = resultLines.length;
-
-            if (startLine && endLine) {
-              const exactStartIndex = startLine - 1;
-              const exactEndIndex = endLine - 1;
-
-              if (exactStartIndex < 0 || exactEndIndex > resultLines.length || exactStartIndex > exactEndIndex) {
-                diffResults.push({
-                  success: false,
-                  error: `Line range ${startLine}-${endLine} is invalid (file has ${resultLines.length} lines)\n\nDebug Info:\n- Requested Range: lines ${startLine}-${endLine}\n- File Bounds: lines 1-${resultLines.length}`,
-                });
-                continue;
-              }
-              const originalChunk = resultLines.slice(exactStartIndex, exactEndIndex + 1).join("\n");
-              const similarity = getLevenshteinSimilarity(originalChunk, searchChunk);
-              if (similarity >= fuzzyThreshold) {
-                matchIndex = exactStartIndex;
-                bestMatchScore = similarity;
-                bestMatchContent = originalChunk;
-              } else {
-                searchStartIndex = Math.max(0, startLine - (bufferLines + 1));
-                searchEndIndex = Math.min(resultLines.length, endLine + bufferLines);
-              }
-            }
-
-            const checkMatch = (index: number) => {
-              const originalChunk = resultLines.slice(index, index + searchLines.length).join("\n");
-              const similarity = getLevenshteinSimilarity(originalChunk, searchChunk);
-              if (similarity > bestMatchScore) {
-                bestMatchScore = similarity;
-                matchIndex = index;
-                bestMatchContent = originalChunk;
-              }
-            };
-
-            if (matchIndex === -1) {
-              const midPoint = Math.floor((searchStartIndex + searchEndIndex) / 2);
-              let leftIndex = midPoint;
-              let rightIndex = midPoint + 1;
-
-              while (leftIndex >= searchStartIndex || rightIndex <= searchEndIndex - searchLines.length) {
-                if (leftIndex >= searchStartIndex) {
-                  checkMatch(leftIndex);
-                  leftIndex--;
-                }
-
-                if (rightIndex <= searchEndIndex - searchLines.length) {
-                  checkMatch(rightIndex);
-                  rightIndex++;
-                }
-              }
-            }
-
-            if (matchIndex === -1 || bestMatchScore < fuzzyThreshold) {
-              const searchChunk = searchLines.join("\n")
-              const originalContentSection =
-                startLine !== undefined && endLine !== undefined
-                  ? `\n\nOriginal Content:\n${addLineNumbers(
-                    resultLines
-                      .slice(
-                        Math.max(0, startLine - 1 - bufferLines),
-                        Math.min(resultLines.length, endLine + bufferLines),
-                      )
-                      .join("\n"),
-                    Math.max(1, startLine - bufferLines),
-                  )}`
-                  : `\n\nOriginal Content:\n${addLineNumbers(resultLines.join("\n"))}`
-
-              const bestMatchSection = bestMatchContent
-                ? `\n\nBest Match Found:\n${addLineNumbers(bestMatchContent, matchIndex + 1)}`
-                : `\n\nBest Match Found:\n(no match)`
-
-              const lineRange =
-                startLine || endLine
-                  ? ` at ${startLine ? `start: ${startLine}` : "start"} to ${endLine ? `end: ${endLine}` : "end"}`
-                  : ""
-
-              diffResults.push({
-                success: false,
-                error: `No sufficiently similar match found${lineRange} (${Math.floor(bestMatchScore * 100)}% similar, needs ${Math.floor(fuzzyThreshold * 100)}%)\n\nDebug Info:\n- Similarity Score: ${Math.floor(bestMatchScore * 100)}%\n- Required Threshold: ${Math.floor(fuzzyThreshold * 100)}%\n- Search Range: ${startLine && endLine ? `lines ${startLine}-${endLine}` : "start to end"}\n- Tip: Use read_file to get the latest content of the file before attempting the diff again, as the file content may have changed\n\nSearch Content:\n${searchChunk}${bestMatchSection}${originalContentSection}`,
-              })
-              continue
-            }
-
-            const matchedLines = resultLines.slice(matchIndex, matchIndex + searchLines.length);
-            const originalIndents = matchedLines.map((line) => {
-              const match = line.match(/^[\t ]*/);
-              return match ? match[0] : "";
-            });
-
-            const searchIndents = searchLines.map((line) => {
-              const match = line.match(/^[\t ]*/);
-              return match ? match[0] : "";
-            });
-
-            const indentedReplaceLines = replaceLines.map((line) => {
-              const matchedIndent = originalIndents[0] || "";
-              const currentIndentMatch = line.match(/^[\t ]*/);
-              const currentIndent = currentIndentMatch ? currentIndentMatch[0] : "";
-              const searchBaseIndent = searchIndents[0] || "";
-
-              const searchBaseLevel = searchBaseIndent.length;
-              const currentLevel = currentIndent.length;
-              const relativeLevel = currentLevel - searchBaseLevel;
-              const finalIndent =
-                relativeLevel < 0
-                  ? matchedIndent.slice(0, Math.max(0, matchedIndent.length + relativeLevel))
-                  : matchedIndent + currentIndent.slice(searchBaseLevel);
-
-              return finalIndent + line.trim();
-            });
-
-            const beforeMatch = resultLines.slice(0, matchIndex);
-            const afterMatch = resultLines.slice(matchIndex + searchLines.length);
-            resultLines = [...beforeMatch, ...indentedReplaceLines, ...afterMatch];
-            delta = delta - matchedLines.length + replaceLines.length;
-            appliedCount++;
-          }
-          const finalContent = resultLines.join(lineEnding);
-          if (paramStartLine !== undefined) {
-             if (appliedCount === 0 && diffResults.length > 0) {
-              return diffResults[0];
-             }
-          }
-          
-          if (appliedCount === 0 && diffResults.length > 0) {
-            return {
-              success: false,
-              failParts: diffResults,
-            };
-          }
-
-          return {
-            success: true,
-            content: finalContent,
-            failParts: diffResults.length > 0 ? diffResults : undefined,
-          };
-        },
-      }
-    }
-  });
-```
-```typescript
-// src/strategies/new-unified/search-strategies.service.ts
-import { compareTwoStrings } from "string-similarity"
-import { closest } from "fastest-levenshtein"
-import { diff_match_patch } from "diff-match-patch"
-import { Change, Hunk } from "./types"
-import Alvamind from 'alvamind';
-import { textService } from "../../utils/extract-text.service";
-
-export type SearchResult = {
-  index: number
-  confidence: number
-  strategy: string
+async function processFile(filePath: string) {
+  try {
+    const data = await readFile(filePath, 'utf8');
+    logger.info(\`File \${filePath} read successfully\`);
+    return data;
+  } catch (error) {
+    logger.error(\`Failed to read file \${filePath}:\`, error);
+    throw error;
+  }
 }
 
-const LARGE_FILE_THRESHOLD = 1000 // lines
-const UNIQUE_CONTENT_BOOST = 0.05
-const DEFAULT_OVERLAP_SIZE = 3 // lines of overlap between windows
-const MAX_WINDOW_SIZE = 500 // maximum lines in a window
+function validateInput(input: string): boolean {
+  if (!input) {
+    logger.warn('Validation failed: Empty input received');
+    return false;
+  }
+  return input.trim().length > 0;
+}
 
-export const searchStrategiesService = Alvamind({ name: 'search-strategies.service' })
-  .use(textService)
-  .derive(({ textService: { getStringSimilarity }}) => {
-    const serviceMethods = {
-      // Helper function to calculate adaptive confidence threshold based on file size
-      getAdaptiveThreshold: (contentLength: number, baseThreshold: number): number => {
-        if (contentLength <= LARGE_FILE_THRESHOLD) {
-          return baseThreshold
-        }
-        return Math.max(baseThreshold - 0.07, 0.8) // Reduce threshold for large files but keep minimum at 80%
-      },
+async function writeOutput(data: string, outputPath: string) {
+  try {
+    await writeFile(outputPath, data, 'utf8');
+    logger.info(\`Output written to \${outputPath}\`);
+  } catch (error) {
+    logger.error(\`Failed to write output to \${outputPath}:\`, error);
+    throw error;
+  }
+}
 
-      // Helper function to evaluate content uniqueness
-      evaluateContentUniqueness: (searchStr: string, content: string[]): number => {
-        const searchLines = searchStr.split("\n")
-        const uniqueLines = new Set(searchLines)
-        const contentStr = content.join("\n")
+async function parseConfig(configPath: string): Promise<Config> {
+  try {
+    const configData = await readFile(configPath, 'utf8');
+    logger.debug(\`Reading config from \${configPath}\`);
+    return JSON.parse(configData);
+  } catch (error) {
+    logger.error(\`Failed to parse config from \${configPath}:\`, error);
+    throw error;
+  }
+}
 
-        // Calculate how many search lines are relatively unique in the content
-        let uniqueCount = 0
-        for (const line of uniqueLines) {
-          const regex = new RegExp(line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")
-          const matches = contentStr.match(regex)
-          if (matches && matches.length <= 2) {
-            // Line appears at most twice
-            uniqueCount++
-          }
-        }
+export {
+  processFile,
+  validateInput,
+  writeOutput,
+  parseConfig,
+  type Config
+};`
 
-        return uniqueCount / uniqueLines.size
-      },
-
-      // Helper function to build text from hunk changes
-      getTextFromChanges: (changes: Change[], types: Array<'context' | 'add' | 'remove'>): string => {
-        return changes
-          .filter((change) => types.includes(change.type))
-          .map((change) => change.originalLine ?? (change.indent ? change.indent + change.content : change.content))
-          .join("\n")
-      },
-
-      // Helper function to validate using diff-match-patch
-      getDMPSimilarity: (original: string, modified: string): number => {
-        const dmp = new diff_match_patch()
-        const diffs = dmp.diff_main(original, modified)
-        dmp.diff_cleanupSemantic(diffs)
-        const patches = dmp.patch_make(original, diffs)
-        const [expectedText] = dmp.patch_apply(patches, original)
-
-        const similarity = getStringSimilarity(expectedText, modified)
-        return similarity
-      },
-
-      // Helper function to validate edit results using hunk information
-      validateEditResult: (hunk: Hunk, result: string): number => {
-        const expectedText = serviceMethods.getTextFromChanges(hunk.changes, ["context", "add"])
-        const originalText = serviceMethods.getTextFromChanges(hunk.changes, ["context", "remove"])
-        const similarity = serviceMethods.getDMPSimilarity(expectedText, result)
-        const originalSimilarity = serviceMethods.getDMPSimilarity(originalText, result)
-
-        if (originalSimilarity > 0.97 && similarity !== 1) {
-          return 0.8 * similarity // Some confidence since we found the right location
-        }
-        return similarity
-      },
-      
-      // Helper function to validate context lines against original content
-      validateContextLines: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number): number => {
-        const contextLines = searchStr.split("\n").filter((line) => !line.startsWith("-"))
-        const similarity = getStringSimilarity(contextLines.join("\n"), candidateStr)
-        const threshold = serviceMethods.getAdaptiveThreshold(fullContent.length, confidenceThreshold)
-        const uniquenessScore = serviceMethods.evaluateContentUniqueness(searchStr, fullContent)
-        const uniquenessBoost = uniquenessScore * UNIQUE_CONTENT_BOOST
-
-        return similarity < threshold ? similarity * 0.3 + uniquenessBoost : similarity + uniquenessBoost
-      },
-
-      // Helper function to calculate match confidence
-      calculateMatchConfidence: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number): number => {
-        const dmpSimilarity = serviceMethods.getDMPSimilarity(searchStr, candidateStr);
-        const contextSimilarity = serviceMethods.validateContextLines(searchStr, candidateStr, fullContent, confidenceThreshold);
-        return Math.min(dmpSimilarity, contextSimilarity);
-      },
-      
-      // Helper function to create overlapping windows
-      createOverlappingWindows: (
-        content: string[],
-        searchSize: number,
-        overlapSize: number = DEFAULT_OVERLAP_SIZE,
-      ): { window: string[]; startIndex: number }[] => {
-        const windows: { window: string[]; startIndex: number }[] = []
-
-        // Ensure minimum window size is at least searchSize
-        const effectiveWindowSize = Math.max(searchSize, Math.min(searchSize * 2, MAX_WINDOW_SIZE))
-
-        // Ensure overlap size doesn't exceed window size
-        const effectiveOverlapSize = Math.min(overlapSize, effectiveWindowSize - 1)
-
-        // Calculate step size, ensure it's at least 1
-        const stepSize = Math.max(1, effectiveWindowSize - effectiveOverlapSize)
-
-        for (let i = 0; i < content.length; i += stepSize) {
-          const windowContent = content.slice(i, i + effectiveWindowSize)
-          if (windowContent.length >= searchSize) {
-            windows.push({ window: windowContent, startIndex: i })
-          }
-        }
-
-        return windows
-      },
-
-      // Helper function to combine overlapping matches
-      combineOverlappingMatches: (
-        matches: (SearchResult & { windowIndex: number })[],
-        overlapSize: number = DEFAULT_OVERLAP_SIZE,
-      ): SearchResult[] => {
-        if (matches.length === 0) {
-          return []
-        }
-
-        // Sort matches by confidence
-        matches.sort((a, b) => b.confidence - a.confidence)
-
-        const combinedMatches: SearchResult[] = []
-        const usedIndices = new Set<number>()
-
-        for (const match of matches) {
-          if (usedIndices.has(match.windowIndex)) {
-            continue
-          }
-
-          // Find overlapping matches
-          const overlapping = matches.filter(
-            (m) =>
-              Math.abs(m.windowIndex - match.windowIndex) === 1 &&
-              Math.abs(m.index - match.index) <= overlapSize &&
-              !usedIndices.has(m.windowIndex),
-          )
-
-          if (overlapping.length > 0) {
-            // Boost confidence if we find same match in overlapping windows
-            const avgConfidence =
-              (match.confidence + overlapping.reduce((sum, m) => sum + m.confidence, 0)) / (overlapping.length + 1)
-            const boost = Math.min(0.05 * overlapping.length, 0.1) // Max 10% boost
-
-            combinedMatches.push({
-              index: match.index,
-              confidence: Math.min(1, avgConfidence + boost),
-              strategy: `${match.strategy}-overlapping`,
-            })
-
-            usedIndices.add(match.windowIndex)
-            overlapping.forEach((m) => usedIndices.add(m.windowIndex))
-          } else {
-            combinedMatches.push({
-              index: match.index,
-              confidence: match.confidence,
-              strategy: match.strategy,
-            })
-            usedIndices.add(match.windowIndex)
-          }
-        }
-
-        return combinedMatches
-      },
-
-      findExactMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const searchLines = searchStr.split("\n")
-        const windows = serviceMethods.createOverlappingWindows(content.slice(startIndex), searchLines.length)
-        const matches: (SearchResult & { windowIndex: number })[] = []
-
-        windows.forEach((windowData, windowIndex) => {
-          const windowStr = windowData.window.join("\n")
-          const exactMatch = windowStr.indexOf(searchStr)
-
-          if (exactMatch !== -1) {
-            const matchedContent = windowData.window
-              .slice(
-                windowStr.slice(0, exactMatch).split("\n").length - 1,
-                windowStr.slice(0, exactMatch).split("\n").length - 1 + searchLines.length,
-              )
-              .join("\n")
-
-            const confidence = serviceMethods.calculateMatchConfidence(searchStr, matchedContent, content, confidenceThreshold);
-
-            matches.push({
-              index: startIndex + windowData.startIndex + windowStr.slice(0, exactMatch).split("\n").length - 1,
-              confidence,
-              strategy: "exact",
-              windowIndex,
-            })
-          }
-        })
-
-        const combinedMatches = serviceMethods.combineOverlappingMatches(matches)
-        return combinedMatches.length > 0 ? combinedMatches[0] : { index: -1, confidence: 0, strategy: "exact" }
-      },
-
-      // String similarity strategy
-      findSimilarityMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const searchLines = searchStr.split("\n")
-        let bestScore = 0
-        let bestIndex = -1
-
-        for (let i = startIndex; i < content.length - searchLines.length + 1; i++) {
-          const windowStr = content.slice(i, i + searchLines.length).join("\n")
-          const score = getStringSimilarity(searchStr, windowStr)
-          if (score > bestScore && score >= confidenceThreshold) {
-            const confidence = serviceMethods.calculateMatchConfidence(searchStr, windowStr, content, confidenceThreshold);
-            const adjustedScore = confidence * score
-
-            if (adjustedScore > bestScore) {
-              bestScore = adjustedScore
-              bestIndex = i
-            }
-          }
-        }
-
-        return {
-          index: bestIndex,
-          confidence: bestIndex !== -1 ? bestScore : 0,
-          strategy: "similarity",
-        }
-      },
-
-      // Levenshtein strategy
-      findLevenshteinMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const searchLines = searchStr.split("\n")
-        const candidates = []
-
-        for (let i = startIndex; i < content.length - searchLines.length + 1; i++) {
-          candidates.push(content.slice(i, i + searchLines.length).join("\n"))
-        }
-
-        if (candidates.length > 0) {
-          const closestMatch = closest(searchStr, candidates)
-          const index = startIndex + candidates.indexOf(closestMatch)
-          const confidence = serviceMethods.calculateMatchConfidence(searchStr, closestMatch, content, confidenceThreshold);
-          return {
-            index: confidence === 0 ? -1 : index,
-            confidence: index !== -1 ? confidence : 0,
-            strategy: "levenshtein",
-          }
-        }
-
-        return { index: -1, confidence: 0, strategy: "levenshtein" }
-      },
-
-      // Helper function to identify anchor lines
-      identifyAnchors: (searchStr: string): { first: string | null; last: string | null } => {
-        const searchLines = searchStr.split("\n")
-        let first: string | null = null
-        let last: string | null = null
-
-        // Find the first non-empty line
-        for (const line of searchLines) {
-          if (line.trim()) {
-            first = line
-            break
-          }
-        }
-
-        // Find the last non-empty line
-        for (let i = searchLines.length - 1; i >= 0; i--) {
-          if (searchLines[i].trim()) {
-            last = searchLines[i]
-            break
-          }
-        }
-
-        return { first, last }
-      },
-
-      // Anchor-based search strategy
-      findAnchorMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const searchLines = searchStr.split("\n")
-        const { first, last } = serviceMethods.identifyAnchors(searchStr)
-
-        if (!first || !last) {
-          return { index: -1, confidence: 0, strategy: "anchor" }
-        }
-
-        let firstIndex = -1
-        let lastIndex = -1
-
-        // Check if the first anchor is unique
-        let firstOccurrences = 0
-        for (const contentLine of content) {
-          if (contentLine === first) {
-            firstOccurrences++
-          }
-        }
-
-        if (firstOccurrences !== 1) {
-          return { index: -1, confidence: 0, strategy: "anchor" }
-        }
-
-        // Find the first anchor
-        for (let i = startIndex; i < content.length; i++) {
-          if (content[i] === first) {
-            firstIndex = i
-            break
-          }
-        }
-
-        // Find the last anchor
-        for (let i = content.length - 1; i >= startIndex; i--) {
-          if (content[i] === last) {
-            lastIndex = i
-            break
-          }
-        }
-
-        if (firstIndex === -1 || lastIndex === -1 || lastIndex <= firstIndex) {
-          return { index: -1, confidence: 0, strategy: "anchor" }
-        }
-
-        // Validate the context
-        const expectedContext = searchLines.slice(searchLines.indexOf(first) + 1, searchLines.indexOf(last)).join("\n")
-        const actualContext = content.slice(firstIndex + 1, lastIndex).join("\n")
-        const contextSimilarity = getStringSimilarity(expectedContext, actualContext)
-
-        if (contextSimilarity < serviceMethods.getAdaptiveThreshold(content.length, confidenceThreshold)) {
-          return { index: -1, confidence: 0, strategy: "anchor" }
-        }
-
-        const confidence = 1
-
-        return {
-          index: firstIndex,
-          confidence: confidence,
-          strategy: "anchor",
-        }
-      },
-
-      // Main search function that tries all strategies
-      findBestMatch: (
-        searchStr: string,
-        content: string[],
-        startIndex: number = 0,
-        confidenceThreshold: number = 0.97,
-      ): SearchResult => {
-        const strategies = [
-          serviceMethods.findExactMatch,
-          serviceMethods.findAnchorMatch,
-          serviceMethods.findSimilarityMatch,
-          serviceMethods.findLevenshteinMatch,
-        ]
-
-        let bestResult: SearchResult = { index: -1, confidence: 0, strategy: "none" }
-
-        for (const strategy of strategies) {
-          const result = strategy(searchStr, content, startIndex, confidenceThreshold)
-          if (result.confidence > bestResult.confidence) {
-            bestResult = result
-          }
-        }
-
-        return bestResult
-      },
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: diff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(expected)
     }
-    return { searchStrategiesService: serviceMethods };
-  });
-
-const self = searchStrategiesService.searchStrategiesService
-export const { findAnchorMatch, findExactMatch, findSimilarityMatch, findLevenshteinMatch, getTextFromChanges } = self
+  })
+})
 ```
-```typescript
-// src/utils/extract-text.service.ts
-// diff-apply-alvamind/src/extract-text.service.ts
-import Alvamind from 'alvamind';
-import { distance } from "fastest-levenshtein";
-import { compareTwoStrings } from "string-similarity";
 
-export const textService = Alvamind({ name: 'extract-text.service' })
-  .decorate('textService', {
+```typescript // test/unit/strategies/new-unified/similar-code.test.ts
+import { create } from "../../../../src/strategies/new-unified"
 
-    addLineNumbers: (content: string, startLine: number = 1): string => {
-      const lines = content.split("\n");
-      const maxLineNumberWidth = String(startLine + lines.length - 1).length;
-      return lines
-        .map((line, index) => {
-          const lineNumber = String(startLine + index).padStart(maxLineNumberWidth, " ");
-          return `${lineNumber} | ${line}`;
-        })
-        .join("\n");
-    },
-    everyLineHasLineNumbers: (content: string): boolean => {
-      const lines = content.split(/\r?\n/);
-      return lines.length > 0 && lines.every((line) => /^\s*\d+\s+\|(?!\|)/.test(line));
-    },
+describe("new-unified: similar code sections", () => {
+  let strategy: ReturnType<typeof create>
 
-    stripLineNumbers: (content: string): string => {
-      // Split into lines to handle each line individually
-      const lines = content.split(/\r?\n/);
+  beforeEach(() => {
+    strategy = create(0.97)
+  })
 
-      // Process each line
-      const processedLines = lines.map((line) => {
-        // Match line number pattern and capture everything after the pipe
-        const match = line.match(/^\s*\d+\s+\|(?!\|)\s?(.*)$/);
-        return match ? match[1] : line;
-      });
+  it("should correctly modify the right section when similar code exists", async () => {
+    const original = `function add(a, b) {
+  return a + b;
+}
 
-      // Join back with original line endings
-      const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
-      return processedLines.join(lineEnding);
-    },
+function subtract(a, b) {
+  return a - b;
+}
 
-    getLevenshteinSimilarity: (original: string, search: string): number => {
-      if (search === "") {
-        return 1;
-      }
-      const normalize = (str: string) => str.replace(/\s+/g, " ").trim();
-      const normalizedOriginal = normalize(original);
-      const normalizedSearch = normalize(search);
-      if (normalizedOriginal === normalizedSearch) {
-        return 1;
-      }
-      const dist = distance(normalizedOriginal, normalizedSearch);
-      const maxLength = Math.max(normalizedOriginal.length, normalizedSearch.length);
-      return 1 - dist / maxLength;
-    },
+function multiply(a, b) {
+  return a + b;  // Bug here
+}`
 
-    getStringSimilarity: (str1: string, str2: string): number => {
-      return compareTwoStrings(str1, str2);
+    const diff = `--- a/math.js
++++ b/math.js
+@@ ... @@
+ function multiply(a, b) {
+-  return a + b;  // Bug here
++  return a * b;
+ }`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: diff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function add(a, b) {
+  return a + b;
+}
+
+function subtract(a, b) {
+  return a - b;
+}
+
+function multiply(a, b) {
+  return a * b;
+}`)
     }
+  })
+
+  it("should handle multiple similar sections with correct context", async () => {
+    const original = `if (condition) {
+  doSomething();
+  doSomething();
+  doSomething();
+}
+
+if (otherCondition) {
+  doSomething();
+  doSomething();
+  doSomething();
+}`
+
+    const diff = `--- a/file.js
++++ b/file.js
+@@ ... @@
+ if (otherCondition) {
+   doSomething();
+-  doSomething();
++  doSomethingElse();
+   doSomething();
+ }`
+
+    const result = await strategy.applyDiff({ originalContent: original, diffContent: diff })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`if (condition) {
+  doSomething();
+  doSomething();
+  doSomething();
+}
+
+if (otherCondition) {
+  doSomething();
+  doSomethingElse();
+  doSomething();
+}`)
+    }
+  })
+})
+```
+
+### New tests for `search-replace`
+
+```typescript // test/unit/strategies/search-replace/deletion.test.ts
+import { searchReplaceService } from "../../../../../dist"
+
+const { applyDiff } = searchReplaceService.searchReplaceService
+
+describe("SearchReplaceDiffStrategy: deletion", () => {
+  it("should delete code when replace block is empty", async () => {
+    const originalContent = `function test() {
+    console.log("hello");
+    // Comment to remove
+    console.log("world");
+}`
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+    // Comment to remove
+=======
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function test() {
+    console.log("hello");
+    console.log("world");
+}`)
+    }
+  })
+
+  it("should delete multiple lines when replace block is empty", async () => {
+    const originalContent = `class Example {
+    constructor() {
+        // Initialize
+        this.value = 0;
+        // Set defaults
+        this.name = "";
+        // End init
+    }
+}`
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+        // Initialize
+        this.value = 0;
+        // Set defaults
+        this.name = "";
+        // End init
+=======
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`class Example {
+    constructor() {
+    }
+}`)
+    }
+  })
+
+  it("should preserve indentation when deleting nested code", async () => {
+    const originalContent = `function outer() {
+    if (true) {
+        // Remove this
+        console.log("test");
+        // And this
+    }
+    return true;
+}`
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+        // Remove this
+        console.log("test");
+        // And this
+=======
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function outer() {
+    if (true) {
+    }
+    return true;
+}`)
+    }
+  })
+})
+```
+
+```typescript // test/unit/strategies/search-replace/exact-matching.test.ts
+import { searchReplaceService } from "../../../../../dist"
+
+const { applyDiff } = searchReplaceService.searchReplaceService
+
+describe("SearchReplaceDiffStrategy: exact matching", () => {
+  it("should replace matching content", async () => {
+    const originalContent = 'function hello() {\n    console.log("hello")\n}\n'
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function hello() {
+    console.log("hello")
+}
+=======
+function hello() {
+    console.log("hello world")
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe('function hello() {\n    console.log("hello world")\n}\n')
+    }
+  })
+
+  it("should match content with different surrounding whitespace", async () => {
+    const originalContent = "\nfunction example() {\n    return 42;\n}\n\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function example() {
+    return 42;
+}
+=======
+function example() {
+    return 43;
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("\nfunction example() {\n    return 43;\n}\n\n")
+    }
+  })
+
+  it("should match content with different indentation in search block", async () => {
+    const originalContent = "    function test() {\n        return true;\n    }\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function test() {
+    return true;
+}
+=======
+function test() {
+    return false;
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("    function test() {\n        return false;\n    }\n")
+    }
+  })
+
+  it("should handle tab-based indentation", async () => {
+    const originalContent = "function test() {\n\treturn true;\n}\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function test() {
+\treturn true;
+}
+=======
+function test() {
+\treturn false;
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("function test() {\n\treturn false;\n}\n")
+    }
+  })
+
+  it("should preserve mixed tabs and spaces", async () => {
+    const originalContent = "\tclass Example {\n\t    constructor() {\n\t\tthis.value = 0;\n\t    }\n\t}"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+\tclass Example {
+\t    constructor() {
+\t\tthis.value = 0;
+\t    }
+\t}
+=======
+\tclass Example {
+\t    constructor() {
+\t\tthis.value = 1;
+\t    }
+\t}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(
+        "\tclass Example {\n\t    constructor() {\n\t\tthis.value = 1;\n\t    }\n\t}",
+      )
+    }
+  })
+
+  it("should handle additional indentation with tabs", async () => {
+    const originalContent = "\tfunction test() {\n\t\treturn true;\n\t}"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function test() {
+\treturn true;
+}
+=======
+function test() {
+\t// Add comment
+\treturn false;
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("\tfunction test() {\n\t\t// Add comment\n\t\treturn false;\n\t}")
+    }
+  })
+
+  it("should preserve exact indentation characters when adding lines", async () => {
+    const originalContent = "\tfunction test() {\n\t\treturn true;\n\t}"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+\tfunction test() {
+\t\treturn true;
+\t}
+=======
+\tfunction test() {
+\t\t// First comment
+\t\t// Second comment
+\t\treturn true;
+\t}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(
+        "\tfunction test() {\n\t\t// First comment\n\t\t// Second comment\n\t\treturn true;\n\t}",
+      )
+    }
+  })
+
+  it("should handle Windows-style CRLF line endings", async () => {
+    const originalContent = "function test() {\r\n    return true;\r\n}\r\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function test() {
+    return true;
+}
+=======
+function test() {
+    return false;
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("function test() {\r\n    return false;\r\n}\r\n")
+    }
+  })
+
+  it("should return false if search content does not match", async () => {
+    const originalContent = 'function hello() {\n    console.log("hello")\n}\n'
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function hello() {
+    console.log("wrong")
+}
+=======
+function hello() {
+    console.log("hello world")
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(false)
+  })
+
+  it("should return false if diff format is invalid", async () => {
+    const originalContent = 'function hello() {\n    console.log("hello")\n}\n'
+    const diffContent = `test.ts\nInvalid diff format`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(false)
+  })
+
+  it("should handle multiple lines with proper indentation", async () => {
+    const originalContent =
+      "class Example {\n    constructor() {\n        this.value = 0\n    }\n\n    getValue() {\n        return this.value\n    }\n}\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+    getValue() {
+        return this.value
+    }
+=======
+    getValue() {
+        // Add logging
+        console.log("Getting value")
+        return this.value
+    }
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(
+        'class Example {\n    constructor() {\n        this.value = 0\n    }\n\n    getValue() {\n        // Add logging\n        console.log("Getting value")\n        return this.value\n    }\n}\n',
+      )
+    }
+  })
+
+  it("should preserve whitespace exactly in the output", async () => {
+    const originalContent = "    indented\n        more indented\n    back\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+    indented
+        more indented
+    back
+=======
+    modified
+        still indented
+    end
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("    modified\n        still indented\n    end\n")
+    }
+  })
+
+  it("should preserve indentation when adding new lines after existing content", async () => {
+    const originalContent = "				onScroll={() => updateHighlights()}"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+				onScroll={() => updateHighlights()}
+=======
+				onScroll={() => updateHighlights()}
+				onDragOver={(e) => {
+					e.preventDefault()
+					e.stopPropagation()
+				}}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(
+        "				onScroll={() => updateHighlights()}\n				onDragOver={(e) => {\n					e.preventDefault()\n					e.stopPropagation()\n				}}",
+      )
+    }
+  })
+
+  it("should handle varying indentation levels correctly", async () => {
+    const originalContent = `
+class Example {
+    constructor() {
+        this.value = 0;
+        if (true) {
+            this.init();
+        }
+    }
+}`.trim()
+
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+    class Example {
+        constructor() {
+            this.value = 0;
+            if (true) {
+                this.init();
+            }
+        }
+    }
+=======
+    class Example {
+        constructor() {
+            this.value = 1;
+            if (true) {
+                this.init();
+                this.setup();
+                this.validate();
+            }
+        }
+    }
+>>>>>>> REPLACE`.trim()
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(
+        `
+class Example {
+    constructor() {
+        this.value = 1;
+        if (true) {
+            this.init();
+            this.setup();
+            this.validate();
+        }
+    }
+}`.trim(),
+      )
+    }
+  })
+
+  it("should handle mixed indentation styles in the same file", async () => {
+    const originalContent = `class Example {
+    constructor() {
+        this.value = 0;
+        if (true) {
+            this.init();
+        }
+    }
+}`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+    constructor() {
+        this.value = 0;
+        if (true) {
+        this.init();
+        }
+    }
+=======
+    constructor() {
+        this.value = 1;
+        if (true) {
+        this.init();
+        this.validate();
+        }
+    }
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`class Example {
+    constructor() {
+        this.value = 1;
+        if (true) {
+        this.init();
+        this.validate();
+        }
+    }
+}`)
+    }
+  })
+
+  it("should handle Python-style significant whitespace", async () => {
+    const originalContent = `def example():
+    if condition:
+        do_something()
+        for item in items:
+            process(item)
+    return True`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+    if condition:
+        do_something()
+        for item in items:
+            process(item)
+=======
+    if condition:
+        do_something()
+        while items:
+            item = items.pop()
+            process(item)
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`def example():
+    if condition:
+        do_something()
+        while items:
+            item = items.pop()
+            process(item)
+    return True`)
+    }
+  })
+
+  it("should preserve empty lines with indentation", async () => {
+    const originalContent = `function test() {
+    const x = 1;
+
+    if (x) {
+        return true;
+    }
+}`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+    const x = 1;
+
+    if (x) {
+=======
+    const x = 1;
+
+    // Check x
+    if (x) {
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function test() {
+    const x = 1;
+
+    // Check x
+    if (x) {
+        return true;
+    }
+}`)
+    }
+  })
+
+  it("should handle indentation when replacing entire blocks", async () => {
+    const originalContent = `class Test {
+    method() {
+        if (true) {
+            console.log("test");
+        }
+    }
+}`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+    method() {
+        if (true) {
+            console.log("test");
+        }
+    }
+=======
+    method() {
+        try {
+            if (true) {
+                console.log("test");
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`class Test {
+    method() {
+        try {
+            if (true) {
+                console.log("test");
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+}`)
+    }
+  })
+
+  it("should handle negative indentation relative to search content", async () => {
+    const originalContent = `class Example {
+    constructor() {
+        if (true) {
+            this.init();
+            this.setup();
+        }
+    }
+}`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+            this.init();
+            this.setup();
+=======
+        this.init();
+        this.setup();
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`class Example {
+    constructor() {
+        if (true) {
+        this.init();
+        this.setup();
+        }
+    }
+}`)
+    }
+  })
+
+  it("should handle extreme negative indentation (no indent)", async () => {
+    const originalContent = `class Example {
+    constructor() {
+        if (true) {
+            this.init();
+        }
+    }
+}`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+            this.init();
+=======
+this.init();
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`class Example {
+    constructor() {
+        if (true) {
+this.init();
+        }
+    }
+}`)
+    }
+  })
+
+  it("should handle mixed indentation changes in replace block", async () => {
+    const originalContent = `class Example {
+    constructor() {
+        if (true) {
+            this.init();
+            this.setup();
+            this.validate();
+        }
+    }
+}`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+            this.init();
+            this.setup();
+            this.validate();
+=======
+        this.init();
+            this.setup();
+    this.validate();
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`class Example {
+    constructor() {
+        if (true) {
+        this.init();
+            this.setup();
+    this.validate();
+        }
+    }
+}`)
+    }
+  })
+
+  it("should find matches from middle out", async () => {
+    const originalContent = `
+function one() {
+    return "target";
+}
+
+function two() {
+    return "target";
+}
+
+function three() {
+    return "target";
+}
+
+function four() {
+    return "target";
+}
+
+function five() {
+    return "target";
+}`.trim()
+
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+    return "target";
+=======
+    return "updated";
+>>>>>>> REPLACE`
+
+    // Search around the middle (function three)
+    // Even though all functions contain the target text,
+    // it should match the one closest to line 9 first
+    const result = applyDiff({ originalContent, diffContent, startLine: 9, endLine: 9 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function one() {
+    return "target";
+}
+
+function two() {
+    return "target";
+}
+
+function three() {
+    return "updated";
+}
+
+function four() {
+    return "target";
+}
+
+function five() {
+    return "target";
+}`)
+    }
+  })
+})
+```
+
+```typescript // test/unit/strategies/search-replace/fuzzy-matching.test.ts
+import { searchReplaceService } from "../../../../../dist"
+
+const { applyDiff } = searchReplaceService.searchReplaceService
+
+describe("SearchReplaceDiffStrategy: fuzzy matching", () => {
+  it("should match content with small differences (>90% similar)", async () => {
+    const originalContent =
+      "function getData() {\n    const results = fetchData();\n    return results.filter(Boolean);\n}\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function getData() {
+    const result = fetchData();
+    return results.filter(Boolean);
+}
+=======
+function getData() {
+    const data = fetchData();
+    return data.filter(Boolean);
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(
+        "function getData() {\n    const data = fetchData();\n    return data.filter(Boolean);\n}\n",
+      )
+    }
+  })
+
+  it("should not match when content is too different (<90% similar)", async () => {
+    const originalContent = "function processUsers(data) {\n    return data.map(user => user.name);\n}\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function handleItems(items) {
+    return items.map(item => item.username);
+}
+=======
+function processData(data) {
+    return data.map(d => d.value);
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(false)
+  })
+
+  it("should match content with extra whitespace", async () => {
+    const originalContent = "function sum(a, b) {\n    return a + b;\n}"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function   sum(a,   b)    {
+    return    a + b;
+}
+=======
+function sum(a, b) {
+    return a + b + 1;
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("function sum(a, b) {\n    return a + b + 1;\n}")
+    }
+  })
+
+  it("should not exact match empty lines", async () => {
+    const originalContent = "function sum(a, b) {\n\n    return a + b;\n}"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function sum(a, b) {
+=======
+import { a } from "a";
+function sum(a, b) {
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe('import { a } from "a";\nfunction sum(a, b) {\n\n    return a + b;\n}')
+    }
+  })
+})
+```
+
+```typescript // test/unit/strategies/search-replace/get-tool-description.test.ts
+import { searchReplaceService } from "../../../../../dist"
+
+const { getToolDescription } = searchReplaceService.searchReplaceService
+
+describe("SearchReplaceDiffStrategy: getToolDescription", () => {
+  it("should include the current working directory", async () => {
+    const cwd = "/test/dir"
+    const description = getToolDescription({ cwd })
+    expect(description).toContain(`relative to the current working directory ${cwd}`)
+  })
+
+  it("should include required format elements", async () => {
+    const description = getToolDescription({ cwd: "/test" })
+    expect(description).toContain("<<<<<<< SEARCH")
+    expect(description).toContain("=======")
+    expect(description).toContain(">>>>>>> REPLACE")
+    expect(description).toContain("<apply_diff>")
+    expect(description).toContain("</apply_diff>")
+  })
+
+  it("should document start_line and end_line parameters", async () => {
+    const description = getToolDescription({ cwd: "/test" })
+    expect(description).toContain("start_line: (required) The line number where the search block starts.")
+    expect(description).toContain("end_line: (required) The line number where the search block ends.")
+  })
+})
+```
+
+```typescript // test/unit/strategies/search-replace/insertion.test.ts
+import { searchReplaceService } from "../../../../../dist"
+
+const { applyDiff } = searchReplaceService.searchReplaceService
+
+describe("SearchReplaceDiffStrategy: insertion", () => {
+  it("should insert code at specified line when search block is empty", async () => {
+    const originalContent = `function test() {
+    const x = 1;
+    return x;
+}`
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+=======
+    console.log("Adding log");
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent, startLine: 2, endLine: 2 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function test() {
+    console.log("Adding log");
+    const x = 1;
+    return x;
+}`)
+    }
+  })
+
+  it("should preserve indentation when inserting at nested location", async () => {
+    const originalContent = `function test() {
+    if (true) {
+        const x = 1;
+    }
+}`
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+=======
+        console.log("Before");
+        console.log("After");
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent, startLine: 3, endLine: 3 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function test() {
+    if (true) {
+        console.log("Before");
+        console.log("After");
+        const x = 1;
+    }
+}`)
+    }
+  })
+
+  it("should handle insertion at start of file", async () => {
+    const originalContent = `function test() {
+    return true;
+}`
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+=======
+// Copyright 2024
+// License: MIT
+
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent, startLine: 1, endLine: 1 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`// Copyright 2024
+// License: MIT
+
+function test() {
+    return true;
+}`)
+    }
+  })
+
+  it("should handle insertion at end of file", async () => {
+    const originalContent = `function test() {
+    return true;
+}`
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+=======
+
+// End of file
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent, startLine: 4, endLine: 4 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function test() {
+    return true;
+}
+
+// End of file`)
+    }
+  })
+
+  it("should error if no start_line is provided for insertion", async () => {
+    const originalContent = `function test() {
+    return true;
+}`
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+=======
+console.log("test");
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(false)
+  })
+})
+```
+
+```typescript // test/unit/strategies/search-replace/line-constrained-search.test.ts
+import { searchReplaceService } from "../../../../../dist"
+
+const { applyDiff } = searchReplaceService.searchReplaceService
+
+describe("SearchReplaceDiffStrategy: line-constrained search", () => {
+  it("should find and replace within specified line range", async () => {
+    const originalContent = `
+function one() {
+    return 1;
+}
+
+function two() {
+    return 2;
+}
+
+function three() {
+    return 3;
+}
+`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function two() {
+    return 2;
+}
+=======
+function two() {
+    return "two";
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent, startLine: 5, endLine: 7, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function one() {
+    return 1;
+}
+
+function two() {
+    return "two";
+}
+
+function three() {
+    return 3;
+}`)
+    }
+  })
+
+  it("should find and replace within buffer zone (5 lines before/after)", async () => {
+    const originalContent = `
+function one() {
+    return 1;
+}
+
+function two() {
+    return 2;
+}
+
+function three() {
+    return 3;
+}
+`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function three() {
+    return 3;
+}
+=======
+function three() {
+    return "three";
+}
+>>>>>>> REPLACE`
+
+    // Even though we specify lines 5-7, it should still find the match at lines 9-11
+    // because it's within the 5-line buffer zone
+    const result = applyDiff({ originalContent, diffContent, startLine: 5, endLine: 7, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function one() {
+    return 1;
+}
+
+function two() {
+    return 2;
+}
+
+function three() {
+    return "three";
+}`)
+    }
+  })
+
+  it("should not find matches outside search range and buffer zone", async () => {
+    const originalContent = `
+function one() {
+    return 1;
+}
+
+function two() {
+    return 2;
+}
+
+function three() {
+    return 3;
+}
+
+function four() {
+    return 4;
+}
+
+function five() {
+    return 5;
+}
+`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function five() {
+    return 5;
+}
+=======
+function five() {
+    return "five";
+}
+>>>>>>> REPLACE`
+
+    // Searching around function two() (lines 5-7)
+    // function five() is more than 5 lines away, so it shouldn't match
+    const result = applyDiff({ originalContent, diffContent, startLine: 5, endLine: 7, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(false)
+  })
+
+  it("should handle search range at start of file", async () => {
+    const originalContent = `
+function one() {
+    return 1;
+}
+
+function two() {
+    return 2;
+}
+`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function one() {
+    return 1;
+}
+=======
+function one() {
+    return "one";
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent, startLine: 1, endLine: 3, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function one() {
+    return "one";
+}
+
+function two() {
+    return 2;
+}`)
+    }
+  })
+
+  it("should handle search range at end of file", async () => {
+    const originalContent = `
+function one() {
+    return 1;
+}
+
+function two() {
+    return 2;
+}
+`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function two() {
+    return 2;
+}
+=======
+function two() {
+    return "two";
+}
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent, startLine: 5, endLine: 7, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function one() {
+    return 1;
+}
+
+function two() {
+    return "two";
+}`)
+    }
+  })
+
+  it("should match specific instance of duplicate code using line numbers", async () => {
+    const originalContent = `
+function processData(data) {
+    return data.map(x => x * 2);
+}
+
+function unrelatedStuff() {
+    console.log("hello");
+}
+
+// Another data processor
+function processData(data) {
+    return data.map(x => x * 2);
+}
+
+function moreStuff() {
+    console.log("world");
+}
+`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function processData(data) {
+    return data.map(x => x * 2);
+}
+=======
+function processData(data) {
+    // Add logging
+    console.log("Processing data...");
+    return data.map(x => x * 2);
+}
+>>>>>>> REPLACE`
+
+    // Target the second instance of processData
+    const result = applyDiff({ originalContent, diffContent, startLine: 10, endLine: 12, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function processData(data) {
+    return data.map(x => x * 2);
+}
+
+function unrelatedStuff() {
+    console.log("hello");
+}
+
+// Another data processor
+function processData(data) {
+    // Add logging
+    console.log("Processing data...");
+    return data.map(x => x * 2);
+}
+
+function moreStuff() {
+    console.log("world");
+}`)
+    }
+  })
+
+  it("should search from start line to end of file when only start_line is provided", async () => {
+    const originalContent = `
+function one() {
+    return 1;
+}
+
+function two() {
+    return 2;
+}
+
+function three() {
+    return 3;
+}
+`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function three() {
+    return 3;
+}
+=======
+function three() {
+    return "three";
+}
+>>>>>>> REPLACE`
+
+    // Only provide start_line, should search from there to end of file
+    const result = applyDiff({ originalContent, diffContent, startLine: 8, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function one() {
+    return 1;
+}
+
+function two() {
+    return 2;
+}
+
+function three() {
+    return "three";
+}`)
+    }
+  })
+
+  it("should search from start of file to end line when only end_line is provided", async () => {
+    const originalContent = `
+function one() {
+    return 1;
+}
+
+function two() {
+    return 2;
+}
+
+function three() {
+    return 3;
+}
+`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function one() {
+    return 1;
+}
+=======
+function one() {
+    return "one";
+}
+>>>>>>> REPLACE`
+
+    // Only provide end_line, should search from start of file to there
+    const result = applyDiff({ originalContent, diffContent, endLine: 4, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function one() {
+    return "one";
+}
+
+function two() {
+    return 2;
+}
+
+function three() {
+    return 3;
+}`)
+    }
+  })
+
+  it("should prioritize exact line match over expanded search", async () => {
+    const originalContent = `
+function one() {
+    return 1;
+}
+
+function process() {
+    return "old";
+}
+
+function process() {
+    return "old";
+}
+
+function two() {
+    return 2;
+}`
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function process() {
+    return "old";
+}
+=======
+function process() {
+    return "new";
+}
+>>>>>>> REPLACE`
+
+    // Should match the second instance exactly at lines 10-12
+    // even though the first instance at 6-8 is within the expanded search range
+    const result = applyDiff({ originalContent, diffContent, startLine: 10, endLine: 12, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`
+function one() {
+    return 1;
+}
+
+function process() {
+    return "old";
+}
+
+function process() {
+    return "new";
+}
+
+function two() {
+    return 2;
+}`)
+    }
+  })
+
+  it("should fall back to expanded search only if exact match fails", async () => {
+    const originalContent = `
+function one() {
+    return 1;
+}
+
+function process() {
+    return "target";
+}
+
+function two() {
+    return 2;
+}`.trim()
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+function process() {
+    return "target";
+}
+=======
+function process() {
+    return "updated";
+}
+>>>>>>> REPLACE`
+
+    // Specify wrong line numbers (3-5), but content exists at 6-8
+    // Should still find and replace it since it's within the expanded range
+    const result = applyDiff({ originalContent, diffContent, startLine: 3, endLine: 5, fuzzyThreshold: 0.9, bufferLines: 5 })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(`function one() {
+    return 1;
+}
+
+function process() {
+    return "updated";
+}
+
+function two() {
+    return 2;
+}`)
+    }
+  })
+})
+```
+
+```typescript // test/unit/strategies/search-replace/line-number-stripping.test.ts
+import { searchReplaceService } from "../../../../../dist"
+
+const { applyDiff } = searchReplaceService.searchReplaceService
+
+describe("SearchReplaceDiffStrategy: line number stripping", () => {
+  it("should strip line numbers from both search and replace sections", async () => {
+    const originalContent = "function test() {\n    return true;\n}\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+1 | function test() {
+2 |     return true;
+3 | }
+=======
+1 | function test() {
+2 |     return false;
+3 | }
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("function test() {\n    return false;\n}\n")
+    }
+  })
+
+  it("should strip line numbers with leading spaces", async () => {
+    const originalContent = "function test() {\n    return true;\n}\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+ 1 | function test() {
+ 2 |     return true;
+ 3 | }
+=======
+ 1 | function test() {
+ 2 |     return false;
+ 3 | }
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("function test() {\n    return false;\n}\n")
+    }
+  })
+
+  it("should not strip when not all lines have numbers in either section", async () => {
+    const originalContent = "function test() {\n    return true;\n}\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+1 | function test() {
+2 |     return true;
+3 | }
+=======
+1 | function test() {
+    return false;
+3 | }
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(false)
+  })
+
+  it("should preserve content that naturally starts with pipe", async () => {
+    const originalContent = "|header|another|\n|---|---|\n|data|more|\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+1 | |header|another|
+2 | |---|---|
+3 | |data|more|
+=======
+1 | |header|another|
+2 | |---|---|
+3 | |data|updated|
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("|header|another|\n|---|---|\n|data|updated|\n")
+    }
+  })
+
+  it("should preserve indentation when stripping line numbers", async () => {
+    const originalContent = "    function test() {\n        return true;\n    }\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+1 |     function test() {
+2 |         return true;
+3 |     }
+=======
+1 |     function test() {
+2 |         return false;
+3 |     }
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("    function test() {\n        return false;\n    }\n")
+    }
+  })
+
+  it("should handle different line numbers between sections", async () => {
+    const originalContent = "function test() {\n    return true;\n}\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+10 | function test() {
+11 |     return true;
+12 | }
+=======
+20 | function test() {
+21 |     return false;
+22 | }
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("function test() {\n    return false;\n}\n")
+    }
+  })
+
+  it("should not strip content that starts with pipe but no line number", async () => {
+    const originalContent = "| Pipe\n|---|\n| Data\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+| Pipe
+|---|
+| Data
+=======
+| Pipe
+|---|
+| Updated
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("| Pipe\n|---|\n| Updated\n")
+    }
+  })
+
+  it("should handle mix of line-numbered and pipe-only content", async () => {
+    const originalContent = "| Pipe\n|---|\n| Data\n"
+    const diffContent = `test.ts
+<<<<<<< SEARCH
+| Pipe
+|---|
+| Data
+=======
+1 | | Pipe
+2 | |---|
+3 | | NewData
+>>>>>>> REPLACE`
+
+    const result = applyDiff({ originalContent, diffContent })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe("1 | | Pipe\n2 | |---|\n3 | | NewData\n")
+    }
+  })
+})
+```
+
+### New tests for `unified`
+
+```typescript // test/unit/strategies/unified/apply-diff.test.ts
+import { applyDiff } from "../../../../src/strategies/unified.service"
+
+describe("UnifiedDiffStrategy: applyDiff", () => {
+  it("should successfully apply a function modification diff", async () => {
+    const originalContent = `import { Logger } from '../logger';
+
+function calculateTotal(items: number[]): number {
+  return items.reduce((sum, item) => {
+    return sum + item;
+  }, 0);
+}
+
+export { calculateTotal };`
+
+    const diffContent = `--- src/utils/helper.ts
++++ src/utils/helper.ts
+@@ -1,9 +1,10 @@
+ import { Logger } from '../logger';
+
+ function calculateTotal(items: number[]): number {
+-  return items.reduce((sum, item) => {
+-    return sum + item;
++  const total = items.reduce((sum, item) => {
++    return sum + item * 1.1;  // Add 10% markup
+   }, 0);
++  return Math.round(total * 100) / 100;  // Round to 2 decimal places
+ }
+
+ export { calculateTotal };`
+
+    const expected = `import { Logger } from '../logger';
+
+function calculateTotal(items: number[]): number {
+  const total = items.reduce((sum, item) => {
+    return sum + item * 1.1;  // Add 10% markup
+  }, 0);
+  return Math.round(total * 100) / 100;  // Round to 2 decimal places
+}
+
+export { calculateTotal };`
+
+    const result = await applyDiff(originalContent, diffContent)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(expected)
+    }
+  })
+
+  it("should successfully apply a diff adding a new method", async () => {
+    const originalContent = `class Calculator {
+  add(a: number, b: number): number {
+    return a + b;
+  }
+}`
+
+    const diffContent = `--- src/Calculator.ts
++++ src/Calculator.ts
+@@ -1,5 +1,9 @@
+ class Calculator {
+   add(a: number, b: number): number {
+     return a + b;
+   }
++
++  multiply(a: number, b: number): number {
++    return a * b;
++  }
+ }`
+
+    const expected = `class Calculator {
+  add(a: number, b: number): number {
+    return a + b;
+  }
+
+  multiply(a: number, b: number): number {
+    return a * b;
+  }
+}`
+
+    const result = await applyDiff(originalContent, diffContent)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(expected)
+    }
+  })
+
+  it("should successfully apply a diff modifying imports", async () => {
+    const originalContent = `import { useState } from 'react';
+import { Button } from './components';
+
+function App() {
+  const [count, setCount] = useState(0);
+  return <Button onClick={() => setCount(count + 1)}>{count}</Button>;
+}`
+
+    const diffContent = `--- src/App.tsx
++++ src/App.tsx
+@@ -1,7 +1,8 @@
+-import { useState } from 'react';
++import { useState, useEffect } from 'react';
+ import { Button } from './components';
+
+ function App() {
+   const [count, setCount] = useState(0);
++  useEffect(() => { document.title = \`Count: \${count}\` }, [count]);
+   return <Button onClick={() => setCount(count + 1)}>{count}</Button>;
+ }`
+
+    const expected = `import { useState, useEffect } from 'react';
+import { Button } from './components';
+
+function App() {
+  const [count, setCount] = useState(0);
+  useEffect(() => { document.title = \`Count: \${count}\` }, [count]);
+  return <Button onClick={() => setCount(count + 1)}>{count}</Button>;
+}`
+
+    const result = await applyDiff(originalContent, diffContent)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(expected)
+    }
+  })
+
+  it("should successfully apply a diff with multiple hunks", async () => {
+    const originalContent = `import { readFile, writeFile } from 'fs';
+
+function processFile(path: string) {
+  readFile(path, 'utf8', (err, data) => {
+    if (err) throw err;
+    const processed = data.toUpperCase();
+    writeFile(path, processed, (err) => {
+      if (err) throw err;
+    });
   });
+}
+
+export { processFile };`
+
+    const diffContent = `--- src/file-processor.ts
++++ src/file-processor.ts
+@@ -1,12 +1,14 @@
+-import { readFile, writeFile } from 'fs';
++import { promises as fs } from 'fs';
++import { join } from 'path';
+
+-function processFile(path: string) {
+-  readFile(path, 'utf8', (err, data) => {
+-    if (err) throw err;
++async function processFile(path: string) {
++  try {
++    const data = await fs.readFile(join(__dirname, path), 'utf8');
+     const processed = data.toUpperCase();
+-    writeFile(path, processed, (err) => {
+-      if (err) throw err;
+-    });
+-  });
++    await fs.writeFile(join(__dirname, path), processed);
++  } catch (error) {
++    console.error('Failed to process file:', error);
++    throw error;
++  }
+ }
+
+ export { processFile };`
+
+    const expected = `import { promises as fs } from 'fs';
+import { join } from 'path';
+
+async function processFile(path: string) {
+  try {
+    const data = await fs.readFile(join(__dirname, path), 'utf8');
+    const processed = data.toUpperCase();
+    await fs.writeFile(join(__dirname, path), processed);
+  } catch (error) {
+    console.error('Failed to process file:', error);
+    throw error;
+  }
+}
+
+export { processFile };`
+
+    const result = await applyDiff(originalContent, diffContent)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(expected)
+    }
+  })
+
+  it("should handle empty original content", async () => {
+    const originalContent = ""
+    const diffContent = `--- empty.ts
++++ empty.ts
+@@ -0,0 +1,3 @@
++export function greet(name: string): string {
++  return \`Hello, \${name}!\`;
++}`
+
+    const expected = `export function greet(name: string): string {
+  return \`Hello, \${name}!\`;
+}\n`
+
+    const result = await applyDiff(originalContent, diffContent)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.content).toBe(expected)
+    }
+  })
+})
+```
+
+```typescript // test/unit/strategies/unified/get-tool-description.test.ts
+import { getToolDescription } from "../../../../src/strategies/unified.service"
+
+describe("UnifiedDiffStrategy: getToolDescription", () => {
+  it("should return tool description with correct cwd", () => {
+    const cwd = "/test/path"
+    const description = getToolDescription({ cwd })
+
+    expect(description).toContain("apply_diff")
+    expect(description).toContain(cwd)
+    expect(description).toContain("Parameters:")
+    expect(description).toContain("Format Requirements:")
+  })
+})
 ```
