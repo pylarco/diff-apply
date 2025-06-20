@@ -241,6 +241,17 @@ Your search/replace content here
                 searchEndIndex = Math.min(resultLines.length, endLine + bufferLines);
               }
             }
+
+            const checkMatch = (index: number) => {
+              const originalChunk = resultLines.slice(index, index + searchLines.length).join("\n");
+              const similarity = self.getSimilarity(originalChunk, searchChunk);
+              if (similarity > bestMatchScore) {
+                bestMatchScore = similarity;
+                matchIndex = index;
+                bestMatchContent = originalChunk;
+              }
+            };
+
             if (matchIndex === -1) {
               const midPoint = Math.floor((searchStartIndex + searchEndIndex) / 2);
               let leftIndex = midPoint;
@@ -248,25 +259,13 @@ Your search/replace content here
 
               while (leftIndex >= searchStartIndex || rightIndex <= searchEndIndex - searchLines.length) {
                 if (leftIndex >= searchStartIndex) {
-                  const originalChunk = resultLines.slice(leftIndex, leftIndex + searchLines.length).join("\n")
-                  const similarity = self.getSimilarity(originalChunk, searchChunk)
-                  if (similarity > bestMatchScore) {
-                    bestMatchScore = similarity
-                    matchIndex = leftIndex
-                    bestMatchContent = originalChunk
-                  }
-                  leftIndex--
+                  checkMatch(leftIndex);
+                  leftIndex--;
                 }
 
                 if (rightIndex <= searchEndIndex - searchLines.length) {
-                  const originalChunk = resultLines.slice(rightIndex, rightIndex + searchLines.length).join("\n")
-                  const similarity = self.getSimilarity(originalChunk, searchChunk)
-                  if (similarity > bestMatchScore) {
-                    bestMatchScore = similarity
-                    matchIndex = rightIndex
-                    bestMatchContent = originalChunk
-                  }
-                  rightIndex++
+                  checkMatch(rightIndex);
+                  rightIndex++;
                 }
               }
             }

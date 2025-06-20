@@ -1,40 +1,12 @@
-An analysis of the codebase has revealed opportunities to refactor and simplify by applying the "Don't Repeat Yourself" (DRY) principle, primarily by consolidating two very similar diffing strategies.
+I've analyzed the codebase for opportunities to make it significantly DRYer by reducing code duplication without introducing breaking changes. I've identified two key areas for refactoring that will improve code structure and reduce redundancy.
 
-The `search-replace.service.ts` and `multi-search-replace.service.ts` files provide nearly identical functionality. The former is a specialized version of the latter, handling a single search-and-replace operation where line numbers are passed as external parameters. The latter handles multiple operations with line numbers embedded in the diff content. The underlying implementation in `multi-search-replace.service.ts` already accommodates both use cases.
+Here are the changes I'll be making:
 
-To streamline the code, I will take the following steps:
+1.  **In `src/strategies/multi-search-replace.service.ts`**: I'll refactor the search logic within the `applyDiff` method. The current implementation has a duplicated block of code for checking potential matches. I will extract this into a local helper function `checkMatch` to eliminate this repetition, making the search loop cleaner and more maintainable.
 
-1.  **Deprecate and remove `search-replace.service.ts`**: Its logic is fully contained within `multi-search-replace.service.ts`.
-2.  **Enhance `multi-search-replace.service.ts`**: The tool description (`getToolDescription`) will be updated to be more comprehensive, explaining both single and multiple replacement modes. This makes the tool's documentation more accurate and versatile.
-3.  **Update `src/index.ts`**: The public API will be preserved. The `searchReplaceService` and `searchReplaceDiffStrategy` exports will be aliased to the unified `multiSearchReplaceService` implementation, ensuring no breaking changes for consumers of the library.
+2.  **In `src/strategies/new-unified/index.ts`**: The `applyDiff` method contains repeated logic for applying changes for a full hunk and then again for sub-hunks if the initial attempt fails. This is a significant piece of duplication. I will introduce a `processHunk` helper function to encapsulate the "find and apply" logic. This new function will be used for both full hunks and sub-hunks, which greatly simplifies `applyDiff` and makes the entire process more robust and easier to follow. This change also resolves an inconsistency in the confidence threshold being used.
 
-This refactoring will significantly reduce the line count, eliminate redundant code, and simplify the overall structure of the library, adhering to the goal of a more concise and maintainable codebase.
-
-```typescript // src/index.ts
-// src/index.ts
-// Export your public API here
-// For example:
-
-// If your code is currently in the root index.ts, move all its content here
-import { InsertGroup } from "./insert-groups";
-import { DiffStrategy, DiffResult } from './types';
-import { newUnifiedDiffStrategyService } from './strategies/new-unified';
-import { multiSearchReplaceService } from './strategies/multi-search-replace.service';
-import { unifiedDiffService } from "./strategies/unified.service";
-
-// Create an alias for searchReplaceService to point to the multiSearchReplaceService implementation
-// This preserves the public API while consolidating the implementation.
-const searchReplaceService = {
-  searchReplaceService: multiSearchReplaceService.multiSearchReplaceService
-};
-
-export type { DiffStrategy, DiffResult, InsertGroup };
-export { newUnifiedDiffStrategyService, multiSearchReplaceService, searchReplaceService, unifiedDiffService }
-export const { unifiedDiffService: unifiedDiffStrategy } = unifiedDiffService
-export const { newUnifiedDiffStrategyService: newUnifiedDiffStrategy } = newUnifiedDiffStrategyService
-export const { multiSearchReplaceService: multiSearchReplaceDiffStrategy } = multiSearchReplaceService
-export const { searchReplaceService: searchReplaceDiffStrategy } = searchReplaceService
-```
+These changes will reduce the overall lines of code and improve the codebase's adherence to the DRY principle.
 
 ```typescript // src/strategies/multi-search-replace.service.ts
 // diff-apply-alvamind/src/strategies/multi-search-replace.service.ts
@@ -280,6 +252,17 @@ Your search/replace content here
                 searchEndIndex = Math.min(resultLines.length, endLine + bufferLines);
               }
             }
+
+            const checkMatch = (index: number) => {
+              const originalChunk = resultLines.slice(index, index + searchLines.length).join("\n");
+              const similarity = self.getSimilarity(originalChunk, searchChunk);
+              if (similarity > bestMatchScore) {
+                bestMatchScore = similarity;
+                matchIndex = index;
+                bestMatchContent = originalChunk;
+              }
+            };
+
             if (matchIndex === -1) {
               const midPoint = Math.floor((searchStartIndex + searchEndIndex) / 2);
               let leftIndex = midPoint;
@@ -287,25 +270,13 @@ Your search/replace content here
 
               while (leftIndex >= searchStartIndex || rightIndex <= searchEndIndex - searchLines.length) {
                 if (leftIndex >= searchStartIndex) {
-                  const originalChunk = resultLines.slice(leftIndex, leftIndex + searchLines.length).join("\n")
-                  const similarity = self.getSimilarity(originalChunk, searchChunk)
-                  if (similarity > bestMatchScore) {
-                    bestMatchScore = similarity
-                    matchIndex = leftIndex
-                    bestMatchContent = originalChunk
-                  }
-                  leftIndex--
+                  checkMatch(leftIndex);
+                  leftIndex--;
                 }
 
                 if (rightIndex <= searchEndIndex - searchLines.length) {
-                  const originalChunk = resultLines.slice(rightIndex, rightIndex + searchLines.length).join("\n")
-                  const similarity = self.getSimilarity(originalChunk, searchChunk)
-                  if (similarity > bestMatchScore) {
-                    bestMatchScore = similarity
-                    matchIndex = rightIndex
-                    bestMatchContent = originalChunk
-                  }
-                  rightIndex++
+                  checkMatch(rightIndex);
+                  rightIndex++;
                 }
               }
             }
@@ -399,7 +370,384 @@ Your search/replace content here
     }
   });
 ```
+```typescript // src/strategies/new-unified/index.ts
+import { Diff, Hunk, Change } from "./types"
+import { ApplyDiffParams, DiffResult } from "../../types"
+import Alvamind from 'alvamind';
+import { editStrategiesService } from "./edit-strategies.service";
+import { searchStrategiesService } from "./search-strategies.service";
 
-```typescript // src/strategies/search-replace.service.ts
-//TODO: delete this file
+interface NewUnifiedDiffStrategyService {
+  newUnifiedDiffStrategyService: {
+    confidenceThreshold: number;
+    create: (confidenceThreshold?: number) => {
+      confidenceThreshold: number;
+      parseUnifiedDiff: (diff: string) => Diff;
+      getToolDescription: (args: {
+        cwd: string;
+        toolOptions?: {
+          [key: string]: string;
+        };
+      }) => string;
+      splitHunk: (hunk: Hunk) => Hunk[];
+      applyDiff: ({ originalContent, diffContent, startLine, endLine, }: ApplyDiffParams) => Promise<DiffResult>;
+    };
+  }
+}
+
+export const newUnifiedDiffStrategyService: NewUnifiedDiffStrategyService = Alvamind({ name: 'new-unified-diff-strategy.service' })
+  .use(editStrategiesService)
+  .use(searchStrategiesService)
+  .derive(({ editStrategiesService: { applyEdit }, searchStrategiesService: { findBestMatch, prepareSearchString } }) => ({
+    newUnifiedDiffStrategyService: {
+
+      confidenceThreshold: 1,
+
+      create: (confidenceThreshold: number = 1) => {
+        const confidenceThresholdValue = Math.max(confidenceThreshold, 0.8);
+
+        const parseUnifiedDiff = (diff: string): Diff => {
+          const MAX_CONTEXT_LINES = 6 // Number of context lines to keep before/after changes
+          const lines = diff.split("\n")
+          const hunks: Hunk[] = []
+          let currentHunk: Hunk | null = null
+
+          let i = 0
+          while (i < lines.length && !lines[i].startsWith("@@")) {
+            i++
+          }
+
+          for (; i < lines.length; i++) {
+            const line = lines[i]
+
+            if (line.startsWith("@@")) {
+              if (
+                currentHunk &&
+                currentHunk.changes.length > 0 &&
+                currentHunk.changes.some((change) => change.type === "add" || change.type === "remove")
+              ) {
+                const changes = currentHunk.changes
+                let startIdx = 0
+                let endIdx = changes.length - 1
+
+                for (let j = 0; j < changes.length; j++) {
+                  if (changes[j].type !== "context") {
+                    startIdx = Math.max(0, j - MAX_CONTEXT_LINES)
+                    break
+                  }
+                }
+
+                for (let j = changes.length - 1; j >= 0; j--) {
+                  if (changes[j].type !== "context") {
+                    endIdx = Math.min(changes.length - 1, j + MAX_CONTEXT_LINES)
+                    break
+                  }
+                }
+
+                currentHunk.changes = changes.slice(startIdx, endIdx + 1)
+                hunks.push(currentHunk)
+              }
+              currentHunk = { changes: [] }
+              continue
+            }
+
+            if (!currentHunk) {
+              continue
+            }
+
+            const content = line.slice(1)
+            const indentMatch = content.match(/^(\s*)/)
+            const indent = indentMatch ? indentMatch[0] : ""
+            const trimmedContent = content.slice(indent.length)
+
+            if (line.startsWith(" ")) {
+              currentHunk.changes.push({
+                type: "context",
+                content: trimmedContent,
+                indent,
+                originalLine: content,
+              })
+            } else if (line.startsWith("+")) {
+              currentHunk.changes.push({
+                type: "add",
+                content: trimmedContent,
+                indent,
+                originalLine: content,
+              })
+            } else if (line.startsWith("-")) {
+              currentHunk.changes.push({
+                type: "remove",
+                content: trimmedContent,
+                indent,
+                originalLine: content,
+              })
+            } else {
+              const finalContent = trimmedContent ? " " + trimmedContent : " "
+              currentHunk.changes.push({
+                type: "context",
+                content: finalContent,
+                indent,
+                originalLine: content,
+              })
+            }
+          }
+
+          if (
+            currentHunk &&
+            currentHunk.changes.length > 0 &&
+            currentHunk.changes.some((change) => change.type === "add" || change.type === "remove")
+          ) {
+            hunks.push(currentHunk)
+          }
+
+          return { hunks }
+        };
+
+        const getToolDescription = (args: { cwd: string; toolOptions?: { [key: string]: string } }): string => {
+          return `# apply_diff Tool - Generate Precise Code Changes
+
+Generate a unified diff that can be cleanly applied to modify code files.
+
+## Step-by-Step Instructions:
+
+1. Start with file headers:
+   - First line: "--- {original_file_path}"
+   - Second line: "+++ {new_file_path}"
+
+2. For each change section:
+   - Begin with "@@ ... @@" separator line without line numbers
+   - Include 2-3 lines of context before and after changes
+   - Mark removed lines with "-"
+   - Mark added lines with "+"
+   - Preserve exact indentation
+
+3. Group related changes:
+   - Keep related modifications in the same hunk
+   - Start new hunks for logically separate changes
+   - When modifying functions/methods, include the entire block
+
+## Requirements:
+
+1. MUST include exact indentation
+2. MUST include sufficient context for unique matching
+3. MUST group related changes together
+4. MUST use proper unified diff format
+5. MUST NOT include timestamps in file headers
+6. MUST NOT include line numbers in the @@ header
+
+## Examples:
+
+✅ Good diff (follows all requirements):
+\`\`\`diff
+--- src/utils.ts
++++ src/utils.ts
+@@ ... @@
+    def calculate_total(items):
+-      total = 0
+-      for item in items:
+-          total += item.price
++      return sum(item.price for item in items)
+\`\`\`
+
+❌ Bad diff (violates requirements #1 and #2):
+\`\`\`diff
+--- src/utils.ts
++++ src/utils.ts
+@@ ... @@
+-total = 0
+-for item in items:
++return sum(item.price for item in items)
+\`\`\`
+
+Parameters:
+- path: (required) File path relative to ${args.cwd}
+- diff: (required) Unified diff content in unified format to apply to the file.
+
+Usage:
+<apply_diff>
+<path>path/to/file.ext</path>
+<diff>
+Your diff here
+</diff>
+</apply_diff>`;
+        };
+
+        const splitHunk = (hunk: Hunk): Hunk[] => {
+          const result: Hunk[] = []
+          let currentHunk: Hunk | null = null
+          let contextBefore: Change[] = []
+          let contextAfter: Change[] = []
+          const MAX_CONTEXT_LINES = 3 // Keep 3 lines of context before/after changes
+
+          for (let i = 0; i < hunk.changes.length; i++) {
+            const change = hunk.changes[i]
+
+            if (change.type === "context") {
+              if (!currentHunk) {
+                contextBefore.push(change)
+                if (contextBefore.length > MAX_CONTEXT_LINES) {
+                  contextBefore.shift()
+                }
+              } else {
+                contextAfter.push(change)
+                if (contextAfter.length > MAX_CONTEXT_LINES) {
+                  // We've collected enough context after changes, create a new hunk
+                  currentHunk.changes.push(...contextAfter)
+                  result.push(currentHunk)
+                  currentHunk = null
+                  // Keep the last few context lines for the next hunk
+                  contextBefore = contextAfter
+                  contextAfter = []
+                }
+              }
+            } else {
+              if (!currentHunk) {
+                currentHunk = { changes: [...contextBefore] }
+                contextAfter = []
+              } else if (contextAfter.length > 0) {
+                // Add accumulated context to current hunk
+                currentHunk.changes.push(...contextAfter)
+                contextAfter = []
+              }
+              currentHunk.changes.push(change)
+            }
+          }
+
+          // Add any remaining changes
+          if (currentHunk) {
+            if (contextAfter.length > 0) {
+              currentHunk.changes.push(...contextAfter)
+            }
+            result.push(currentHunk)
+          }
+
+          return result
+        };
+
+        const processHunk = async (hunk: Hunk, content: string[]) => {
+          const contextStr = prepareSearchString(hunk.changes);
+          const searchResult = findBestMatch(contextStr, content, 0, confidenceThresholdValue);
+
+          if (searchResult.confidence < confidenceThresholdValue) {
+            return { success: false, type: 'search' as const, searchResult, hunk };
+          }
+
+          const editResult = await applyEdit(hunk, content, searchResult.index, searchResult.confidence, confidenceThresholdValue);
+          
+          if (editResult.confidence < confidenceThresholdValue) {
+            return { success: false, type: 'edit' as const, editResult };
+          }
+
+          return { success: true, result: editResult.result };
+        };
+
+        const applyDiff = async (
+          {
+            originalContent,
+            diffContent,
+            startLine,
+            endLine,
+          }: ApplyDiffParams
+        ): Promise<DiffResult> => {
+          const parsedDiff = parseUnifiedDiff(diffContent)
+          const originalLines = originalContent.split("\n")
+          let result = [...originalLines]
+
+          if (!parsedDiff.hunks.length) {
+            return {
+              success: false,
+              error: "No hunks found in diff. Please ensure your diff includes actual changes and follows the unified diff format.",
+            }
+          }
+
+          for (const hunk of parsedDiff.hunks) {
+            const processResult = await processHunk(hunk, result);
+            if (processResult.success) {
+                result = processResult.result;
+                continue;
+            }
+
+            // If main hunk fails, try sub-hunks
+            console.log("Full hunk application failed, trying sub-hunks strategy")
+            const subHunks = splitHunk(hunk)
+            let subHunkResult = [...result]
+            let allSubHunksApplied = true;
+
+            for (const subHunk of subHunks) {
+              const subProcessResult = await processHunk(subHunk, subHunkResult);
+              if (subProcessResult.success) {
+                subHunkResult = subProcessResult.result;
+              } else {
+                allSubHunksApplied = false;
+                break;
+              }
+            }
+
+            if (allSubHunksApplied && subHunks.length > 0) {
+              result = subHunkResult
+              continue
+            }
+            
+            // Both failed, report error from original hunk failure
+            let errorMsg: string;
+            if (processResult.type === 'search') {
+              const { searchResult, hunk: failedHunk } = processResult;
+              const contextLines = failedHunk.changes.filter((c) => c.type === "context").length;
+              const totalLines = failedHunk.changes.length;
+              const contextRatio = totalLines > 0 ? contextLines / totalLines : 0;
+
+              errorMsg = `Failed to find a matching location in the file (${Math.floor(
+                searchResult.confidence * 100,
+              )}% confidence, needs ${Math.floor(confidenceThresholdValue * 100)}%)\n\n`
+              errorMsg += "Debug Info:\n"
+              errorMsg += `- Search Strategy Used: ${searchResult.strategy}\n`
+              errorMsg += `- Context Lines: ${contextLines} out of ${totalLines} total lines (${Math.floor(
+                contextRatio * 100,
+              )}%)\n`
+              errorMsg += `- Attempted to split into ${subHunks.length} sub-hunks but still failed\n`
+
+              if (contextRatio < 0.2) {
+                errorMsg += "\nPossible Issues:\n- Not enough context lines to uniquely identify the location\n- Add a few more lines of unchanged code around your changes\n"
+              } else if (contextRatio > 0.5) {
+                errorMsg += "\nPossible Issues:\n- Too many context lines may reduce search accuracy\n- Try to keep only 2-3 lines of context before and after changes\n"
+              } else {
+                errorMsg += "\nPossible Issues:\n- The diff may be targeting a different version of the file\n- There may be too many changes in a single hunk, try splitting the changes into multiple hunks\n"
+              }
+
+              if (startLine && endLine) {
+                errorMsg += `\nSearch Range: lines ${startLine}-${endLine}\n`
+              }
+            } else { // type is 'edit'
+              const { editResult } = processResult;
+              errorMsg = `Failed to apply the edit using ${editResult.strategy} strategy (${Math.floor(
+                editResult.confidence * 100,
+              )}% confidence)\n\n`
+              errorMsg += "Debug Info:\n"
+              errorMsg += "- The location was found but the content didn't match exactly\n"
+              errorMsg += "- This usually means the file has been modified since the diff was created\n"
+              errorMsg += "- Or the diff may be targeting a different version of the file\n"
+              errorMsg += "\nPossible Solutions:\n"
+              errorMsg += "1. Refresh your view of the file and create a new diff\n"
+              errorMsg += "2. Double-check that the removed lines (-) match the current file content\n"
+              errorMsg += "3. Ensure your diff targets the correct version of the file"
+            }
+            return { success: false, error: errorMsg };
+          }
+
+          return { success: true, content: result.join("\n") }
+        };
+
+        return {
+          confidenceThreshold: confidenceThresholdValue,
+          parseUnifiedDiff,
+          getToolDescription,
+          splitHunk,
+          applyDiff,
+        };
+      },
+    }
+  }));
+
+const self = newUnifiedDiffStrategyService.newUnifiedDiffStrategyService
+export const { create, confidenceThreshold } = self
 ```

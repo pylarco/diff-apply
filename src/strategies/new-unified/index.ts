@@ -251,6 +251,23 @@ Your diff here
           return result
         };
 
+        const processHunk = async (hunk: Hunk, content: string[]) => {
+          const contextStr = prepareSearchString(hunk.changes);
+          const searchResult = findBestMatch(contextStr, content, 0, confidenceThresholdValue);
+
+          if (searchResult.confidence < confidenceThresholdValue) {
+            return { success: false, type: 'search' as const, searchResult, hunk };
+          }
+
+          const editResult = await applyEdit(hunk, content, searchResult.index, searchResult.confidence, confidenceThresholdValue);
+          
+          if (editResult.confidence < confidenceThresholdValue) {
+            return { success: false, type: 'edit' as const, editResult };
+          }
+
+          return { success: true, result: editResult.result };
+        };
+
         const applyDiff = async (
           {
             originalContent,
@@ -271,89 +288,65 @@ Your diff here
           }
 
           for (const hunk of parsedDiff.hunks) {
-            const contextStr = prepareSearchString(hunk.changes)
-            const {
-              index: matchPosition,
-              confidence,
-              strategy,
-            } = findBestMatch(contextStr, result, 0, self.confidenceThreshold)
+            const processResult = await processHunk(hunk, result);
+            if (processResult.success) {
+                result = processResult.result;
+                continue;
+            }
 
-            if (confidence < self.confidenceThreshold) {
-              console.log("Full hunk application failed, trying sub-hunks strategy")
-              // Try splitting the hunk into smaller hunks
-              const subHunks = splitHunk(hunk)
-              let subHunkSuccess = true
-              let subHunkResult = [...result]
+            // If main hunk fails, try sub-hunks
+            console.log("Full hunk application failed, trying sub-hunks strategy")
+            const subHunks = splitHunk(hunk)
+            let subHunkResult = [...result]
+            let allSubHunksApplied = true;
 
-              for (const subHunk of subHunks) {
-                const subContextStr = prepareSearchString(subHunk.changes)
-                const subSearchResult = findBestMatch(subContextStr, subHunkResult, 0, self.confidenceThreshold)
-
-                if (subSearchResult.confidence >= confidenceThreshold) {
-                  const subEditResult = await applyEdit(
-                    subHunk,
-                    subHunkResult,
-                    subSearchResult.index,
-                    subSearchResult.confidence,
-                    self.confidenceThreshold,
-                  )
-                  if (subEditResult.confidence >= self.confidenceThreshold) {
-                    subHunkResult = subEditResult.result
-                    continue
-                  }
-                }
-                subHunkSuccess = false
-                break
+            for (const subHunk of subHunks) {
+              const subProcessResult = await processHunk(subHunk, subHunkResult);
+              if (subProcessResult.success) {
+                subHunkResult = subProcessResult.result;
+              } else {
+                allSubHunksApplied = false;
+                break;
               }
+            }
 
-              if (subHunkSuccess) {
-                result = subHunkResult
-                continue
-              }
+            if (allSubHunksApplied && subHunks.length > 0) {
+              result = subHunkResult
+              continue
+            }
+            
+            // Both failed, report error from original hunk failure
+            let errorMsg: string;
+            if (processResult.type === 'search') {
+              const { searchResult, hunk: failedHunk } = processResult;
+              const contextLines = failedHunk.changes.filter((c) => c.type === "context").length;
+              const totalLines = failedHunk.changes.length;
+              const contextRatio = totalLines > 0 ? contextLines / totalLines : 0;
 
-              // If sub-hunks also failed, return the original error
-              const contextLines = hunk.changes.filter((c) => c.type === "context").length
-              const totalLines = hunk.changes.length
-              const contextRatio = contextLines / totalLines
-
-              let errorMsg = `Failed to find a matching location in the file (${Math.floor(
-                confidence * 100,
-              )}% confidence, needs ${Math.floor(self.confidenceThreshold * 100)}%)\n\n`
+              errorMsg = `Failed to find a matching location in the file (${Math.floor(
+                searchResult.confidence * 100,
+              )}% confidence, needs ${Math.floor(confidenceThresholdValue * 100)}%)\n\n`
               errorMsg += "Debug Info:\n"
-              errorMsg += `- Search Strategy Used: ${strategy}\n`
+              errorMsg += `- Search Strategy Used: ${searchResult.strategy}\n`
               errorMsg += `- Context Lines: ${contextLines} out of ${totalLines} total lines (${Math.floor(
                 contextRatio * 100,
               )}%)\n`
               errorMsg += `- Attempted to split into ${subHunks.length} sub-hunks but still failed\n`
 
               if (contextRatio < 0.2) {
-                errorMsg += "\nPossible Issues:\n"
-                errorMsg += "- Not enough context lines to uniquely identify the location\n"
-                errorMsg += "- Add a few more lines of unchanged code around your changes\n"
+                errorMsg += "\nPossible Issues:\n- Not enough context lines to uniquely identify the location\n- Add a few more lines of unchanged code around your changes\n"
               } else if (contextRatio > 0.5) {
-                errorMsg += "\nPossible Issues:\n"
-                errorMsg += "- Too many context lines may reduce search accuracy\n"
-                errorMsg += "- Try to keep only 2-3 lines of context before and after changes\n"
+                errorMsg += "\nPossible Issues:\n- Too many context lines may reduce search accuracy\n- Try to keep only 2-3 lines of context before and after changes\n"
               } else {
-                errorMsg += "\nPossible Issues:\n"
-                errorMsg += "- The diff may be targeting a different version of the file\n"
-                errorMsg +=
-                  "- There may be too many changes in a single hunk, try splitting the changes into multiple hunks\n"
+                errorMsg += "\nPossible Issues:\n- The diff may be targeting a different version of the file\n- There may be too many changes in a single hunk, try splitting the changes into multiple hunks\n"
               }
 
               if (startLine && endLine) {
                 errorMsg += `\nSearch Range: lines ${startLine}-${endLine}\n`
               }
-
-              return { success: false, error: errorMsg }
-            }
-
-            const editResult = await applyEdit(hunk, result, matchPosition, confidence, self.confidenceThreshold)
-            if (editResult.confidence >= self.confidenceThreshold) {
-              result = editResult.result
-            } else {
-              // Edit failure - likely due to content mismatch
-              let errorMsg = `Failed to apply the edit using ${editResult.strategy} strategy (${Math.floor(
+            } else { // type is 'edit'
+              const { editResult } = processResult;
+              errorMsg = `Failed to apply the edit using ${editResult.strategy} strategy (${Math.floor(
                 editResult.confidence * 100,
               )}% confidence)\n\n`
               errorMsg += "Debug Info:\n"
@@ -364,9 +357,8 @@ Your diff here
               errorMsg += "1. Refresh your view of the file and create a new diff\n"
               errorMsg += "2. Double-check that the removed lines (-) match the current file content\n"
               errorMsg += "3. Ensure your diff targets the correct version of the file"
-
-              return { success: false, error: errorMsg }
             }
+            return { success: false, error: errorMsg };
           }
 
           return { success: true, content: result.join("\n") }

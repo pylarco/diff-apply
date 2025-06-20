@@ -13,7 +13,6 @@ src/strategies/new-unified/edit-strategies.service.ts
 src/strategies/new-unified/index.ts
 src/strategies/new-unified/search-strategies.service.ts
 src/strategies/new-unified/types.ts
-src/strategies/search-replace.service.ts
 src/strategies/unified.service.ts
 src/types.ts
 src/utils/extract-text.service.ts
@@ -42,28 +41,6 @@ declare global {
 
 // This export is needed to ensure this file is treated as a module
 export { };
-````
-
-## File: src/index.ts
-````typescript
-// src/index.ts
-// Export your public API here
-// For example:
-
-// If your code is currently in the root index.ts, move all its content here
-import { InsertGroup } from "./insert-groups";
-import { DiffStrategy, DiffResult } from './types';
-import { searchReplaceService } from './strategies/search-replace.service';
-import { newUnifiedDiffStrategyService } from './strategies/new-unified';
-import { multiSearchReplaceService } from './strategies/multi-search-replace.service';
-import { unifiedDiffService } from "./strategies/unified.service";
-
-export type { DiffStrategy, DiffResult, InsertGroup };
-export { newUnifiedDiffStrategyService, multiSearchReplaceService, searchReplaceService, unifiedDiffService }
-export const { unifiedDiffService: unifiedDiffStrategy } = unifiedDiffService
-export const { newUnifiedDiffStrategyService: newUnifiedDiffStrategy } = newUnifiedDiffStrategyService
-export const { multiSearchReplaceService: multiSearchReplaceDiffStrategy } = multiSearchReplaceService
-export const { searchReplaceService: searchReplaceDiffStrategy } = searchReplaceService
 ````
 
 ## File: src/insert-groups.ts
@@ -1202,6 +1179,33 @@ Please ensure your code adheres to the existing coding style and that all tests 
 MIT License (see [LICENSE](LICENSE) file).
 ````
 
+## File: src/index.ts
+````typescript
+// src/index.ts
+// Export your public API here
+// For example:
+
+// If your code is currently in the root index.ts, move all its content here
+import { InsertGroup } from "./insert-groups";
+import { DiffStrategy, DiffResult } from './types';
+import { newUnifiedDiffStrategyService } from './strategies/new-unified';
+import { multiSearchReplaceService } from './strategies/multi-search-replace.service';
+import { unifiedDiffService } from "./strategies/unified.service";
+
+// Create an alias for searchReplaceService to point to the multiSearchReplaceService implementation
+// This preserves the public API while consolidating the implementation.
+const searchReplaceService = {
+  searchReplaceService: multiSearchReplaceService.multiSearchReplaceService
+};
+
+export type { DiffStrategy, DiffResult, InsertGroup };
+export { newUnifiedDiffStrategyService, multiSearchReplaceService, searchReplaceService, unifiedDiffService }
+export const { unifiedDiffService: unifiedDiffStrategy } = unifiedDiffService
+export const { newUnifiedDiffStrategyService: newUnifiedDiffStrategy } = newUnifiedDiffStrategyService
+export const { multiSearchReplaceService: multiSearchReplaceDiffStrategy } = multiSearchReplaceService
+export const { searchReplaceService: searchReplaceDiffStrategy } = searchReplaceService
+````
+
 ## File: src/strategies/new-unified/index.ts
 ````typescript
 import { Diff, Hunk, Change } from "./types"
@@ -1936,73 +1940,49 @@ export const multiSearchReplaceService: MultiSearchReplaceService = Alvamind({ n
         getSimilarity: self.getSimilarity,
         getToolDescription: (args: { cwd: string; toolOptions?: { [key: string]: string } }): string => {
           return `## apply_diff
-Description: Request to replace existing code using a search and replace block.
-This tool allows for precise, surgical replaces to files by specifying exactly what content to search for and what to replace it with.
-The tool will maintain proper indentation and formatting while making changes.
-Only a single operation is allowed per tool use.
-The SEARCH section must exactly match existing content including whitespace and indentation.
-If you're not confident in the exact content to search for, use the read_file tool first to get the exact content.
-When applying the diffs, be extra careful to remember to change any closing brackets or other syntax that may be affected by the diff farther down in the file.
-ALWAYS make as many changes in a single 'apply_diff' request as possible using multiple SEARCH/REPLACE blocks
+Description: Request to replace existing code using search and replace blocks. This tool allows for precise, surgical replacements to files by specifying what content to search for and what to replace it with. It supports single or multiple replacements in one call. The SEARCH section must exactly match existing content including whitespace and indentation.
 
 Parameters:
 - path: (required) The path of the file to modify (relative to the current working directory ${args.cwd})
-- diff: (required) The search/replace block defining the changes.
+- diff: (required) The search/replace block(s) defining the changes.
+- start_line: (optional) The line number where the search block starts. Use only for a single replacement.
+- end_line: (optional) The line number where the search block ends. Use only for a single replacement.
 
 Diff format:
+
+**Mode 1: Multiple replacements (or single with embedded line numbers)**
+Each block must contain its own line numbers.
 \`\`\`
 <<<<<<< SEARCH
 :start_line: (required) The line number of original content where the search block starts.
-:end_line: (required) The line number of original content  where the search block ends.
+:end_line: (required) The line number of original content where the search block ends.
 -------
 [exact content to find including whitespace]
 =======
 [new content to replace with]
 >>>>>>> REPLACE
-
+... more blocks ...
 \`\`\`
 
-Example:
-
-Original file:
-\`\`\`
-1 | def calculate_total(items):
-2 |     total = 0
-3 |     for item in items:
-4 |         total += item
-5 |     return total
-\`\`\`
-
-Search/Replace content:
+**Mode 2: Single replacement (using top-level start_line/end_line parameters)**
+The diff block should not contain line numbers.
 \`\`\`
 <<<<<<< SEARCH
-:start_line:1
-:end_line:5
--------
-def calculate_total(items):
-total = 0
-for item in items:
-total += item
-return total
+[exact content to find including whitespace]
 =======
-def calculate_total(items):
-"""Calculate total with 10% markup"""
-return sum(item * 1.1 for item in items)
+[new content to replace with]
 >>>>>>> REPLACE
-
 \`\`\`
 
-Search/Replace content with multi edits:
+Example (Mode 1 - multiple edits):
 \`\`\`
 <<<<<<< SEARCH
-:start_line:1
+:start_line:2
 :end_line:2
 -------
-def calculate_sum(items):
 sum = 0
 =======
-def calculate_sum(items):
-sum = 0
+total = 0
 >>>>>>> REPLACE
 
 <<<<<<< SEARCH
@@ -2017,14 +1997,29 @@ return sum
 >>>>>>> REPLACE
 \`\`\`
 
+Example (Mode 2 - single edit with params):
+(Use with <start_line>1</start_line> and <end_line>5</end_line>)
+\`\`\`
+<<<<<<< SEARCH
+def calculate_total(items):
+total = 0
+for item in items:
+total += item
+return total
+=======
+def calculate_total(items):
+"""Calculate total with 10% markup"""
+return sum(item * 1.1 for item in items)
+>>>>>>> REPLACE
+\`\`\`
+
 Usage:
 <apply_diff>
 <path>File path here</path>
 <diff>
 Your search/replace content here
-You can use multi search/replace block in one diff block, but make sure to include the line numbers for each block.
-Only use a single line of '=======' between search and replacement content, because multiple '=======' will corrupt the file.
 </diff>
+<!-- For Mode 2, add start/end line numbers here -->
 </apply_diff>`;
         },
 
@@ -2239,12 +2234,19 @@ Only use a single line of '=======' between search and replacement content, beca
             appliedCount++;
           }
           const finalContent = resultLines.join(lineEnding);
+          if (paramStartLine !== undefined) {
+             if (appliedCount === 0 && diffResults.length > 0) {
+              return diffResults[0];
+             }
+          }
+          
           if (appliedCount === 0 && diffResults.length > 0) {
             return {
               success: false,
               failParts: diffResults,
             };
           }
+
           return {
             success: true,
             content: finalContent,
@@ -2254,117 +2256,6 @@ Only use a single line of '=======' between search and replacement content, beca
       }
     }
   });
-````
-
-## File: src/strategies/search-replace.service.ts
-````typescript
-// diff-apply-alvamind/src/strategies/search-replace.service.ts
-import Alvamind from 'alvamind';
-import { ApplyDiffParams, DiffResult } from "../types";
-import { multiSearchReplaceService } from './multi-search-replace.service';
-
-interface SearchReplaceService {
-  searchReplaceService: {
-    getSimilarity: (original: string, search: string) => number;
-    getToolDescription: (args: {
-      cwd: string;
-      toolOptions?: {
-        [key: string]: string;
-      };
-    }) => string;
-    applyDiff: (params: ApplyDiffParams) => DiffResult;
-  }
-}
-
-export const searchReplaceService: SearchReplaceService = Alvamind({ name: 'search-replace.service' })
-  .derive(() => ({
-    searchReplaceService: {
-      getSimilarity: multiSearchReplaceService.multiSearchReplaceService.getSimilarity,
-      getToolDescription: (args: { cwd: string; toolOptions?: { [key: string]: string } }): string => {
-        return `## apply_diff
-Description: Request to replace existing code using a search and replace block.
-This tool allows for precise, surgical replaces to files by specifying exactly what content to search for and what to replace it with.
-The tool will maintain proper indentation and formatting while making changes.
-Only a single operation is allowed per tool use.
-The SEARCH section must exactly match existing content including whitespace and indentation.
-If you're not confident in the exact content to search for, use the read_file tool first to get the exact content.
-When applying the diffs, be extra careful to remember to change any closing brackets or other syntax that may be affected by the diff farther down in the file.
-
-Parameters:
-- path: (required) The path of the file to modify (relative to the current working directory ${args.cwd})
-- diff: (required) The search/replace block defining the changes.
-- start_line: (required) The line number where the search block starts.
-- end_line: (required) The line number where the search block ends.
-
-Diff format:
-\`\`\`
-<<<<<<< SEARCH
-[exact content to find including whitespace]
-=======
-[new content to replace with]
->>>>>>> REPLACE
-\`\`\`
-
-Example:
-
-Original file:
-\`\`\`
-1 | def calculate_total(items):
-2 |     total = 0
-3 |     for item in items:
-4 |         total += item
-5 |     return total
-\`\`\`
-
-Search/Replace content:
-\`\`\`
-<<<<<<< SEARCH
-def calculate_total(items):
-total = 0
-for item in items:
-total += item
-return total
-=======
-def calculate_total(items):
-"""Calculate total with 10% markup"""
-return sum(item * 1.1 for item in items)
->>>>>>> REPLACE
-\`\`\`
-
-Usage:
-<apply_diff>
-<path>File path here</path>
-<diff>
-Your search/replace content here
-</diff>
-<start_line>1</start_line>
-<end_line>5</end_line>
-</apply_diff>`;
-      },
-
-      applyDiff: (params: ApplyDiffParams): DiffResult => {
-        if (params.startLine === undefined || params.endLine === undefined) {
-          return {
-            success: false,
-            error: `start_line and end_line are required for this diff strategy.`,
-          };
-        }
-
-        const result = multiSearchReplaceService.multiSearchReplaceService.applyDiff(params);
-
-        // The multi-search-replace service returns a result that may contain failParts
-        // for each block. Since this strategy only ever has one block, we can simplify
-        // the result for the caller.
-        if (result.success) {
-          return { success: true, content: result.content };
-        } else if (result.failParts && result.failParts.length > 0) {
-          return result.failParts[0]; // Return the error for the single part that failed
-        } else {
-          return result; // Return other structural errors
-        }
-      },
-    }
-  }));
 ````
 
 ## File: package.json
