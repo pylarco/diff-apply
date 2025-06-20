@@ -105,15 +105,41 @@ Your search/replace content here
         },
 
         applyDiff: (
-          {
-            originalContent,
-            diffContent,
-            fuzzyThreshold = 1.0,
-            bufferLines = BUFFER_LINES,
-            startLine: paramStartLine,
-            endLine: paramEndLine,
-          }: ApplyDiffParams
+          params: ApplyDiffParams | string,
+          diffContentParam?: string
         ): DiffResult => {
+          let originalContent: string;
+          let diffContent: string;
+          let fuzzyThreshold = 1.0;
+          let bufferLines = BUFFER_LINES;
+          let paramStartLine: number | undefined;
+          let paramEndLine: number | undefined;
+          
+          // Handle both function signatures
+          if (typeof params === 'string' && typeof diffContentParam === 'string') {
+            originalContent = params;
+            diffContent = diffContentParam;
+          } else if (typeof params === 'object') {
+            originalContent = params.originalContent;
+            diffContent = params.diffContent;
+            fuzzyThreshold = params.fuzzyThreshold ?? 1.0;
+            bufferLines = params.bufferLines ?? BUFFER_LINES;
+            paramStartLine = params.startLine;
+            paramEndLine = params.endLine;
+          } else {
+            return {
+              success: false,
+              error: "Invalid parameters provided",
+            };
+          }
+          
+          if (!originalContent || !diffContent) {
+            return {
+              success: false,
+              error: "Missing required parameters: originalContent and diffContent",
+            };
+          }
+          
           let replacements;
           const initialResultLines = originalContent.split(/\r?\n/);
 
@@ -336,3 +362,5 @@ Your search/replace content here
       }
     }
   });
+
+export const { applyDiff, getToolDescription } = multiSearchReplaceService.multiSearchReplaceService;

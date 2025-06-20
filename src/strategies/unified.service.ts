@@ -115,6 +115,17 @@ Your diff here
 
       applyDiff: (originalContent: string, diffContent: string): DiffResult => {
         try {
+          // Check if the diff content has the required header lines
+          if (!diffContent.match(/^---.*\n\+\+\+.*$/m)) {
+            return {
+              success: false,
+              error: "Invalid unified diff format - missing header lines",
+              details: {
+                searchContent: diffContent,
+              },
+            };
+          }
+
           const result = applyPatch(originalContent, diffContent);
           if (result === false) {
             return {

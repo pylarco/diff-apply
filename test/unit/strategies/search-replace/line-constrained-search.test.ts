@@ -1,4 +1,4 @@
-import { searchReplaceService } from "../../../../../dist"
+import { searchReplaceService } from "../../../../dist"
 
 const { applyDiff } = searchReplaceService.searchReplaceService
 
