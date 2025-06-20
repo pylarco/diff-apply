@@ -77,13 +77,13 @@ A core design principle is providing feedback for failure. Instead of a generic 
 
 ```bash
 # Using npm
-npm install diff-patcher
+npm install diff-apply
 
 # Using yarn
-yarn add diff-patcher
+yarn add diff-apply
 
 # Using bun
-bun add diff-patcher
+bun add diff-apply
 ```
 
 ## Usage

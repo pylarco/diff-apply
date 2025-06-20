@@ -1,5 +1,5 @@
 {
-  "name": "diff-patcher",
+  "name": "diff-apply",
   "version": "1.0.6",
   "description": "A utility for applying file diffs programmatically",
   "main": "dist/index.js",
@@ -55,7 +55,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pylarco/diff-patcher.git"
+    "url": "https://github.com/pylarco/diff-apply.git"
   },
   "publishConfig": {
     "access": "public"
