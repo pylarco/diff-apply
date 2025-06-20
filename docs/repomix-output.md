@@ -1593,351 +1593,6 @@ const self = newUnifiedDiffStrategyService.newUnifiedDiffStrategyService
 export const { create, confidenceThreshold } = self
 ````
 
-## File: src/strategies/multi-search-replace.service.ts
-````typescript
-// diff-apply-alvamind/src/strategies/multi-search-replace.service.ts
-import { DiffResult, ApplyDiffParams } from "../types";
-import { distance } from "fastest-levenshtein";
-import Alvamind from 'alvamind';
-import { textService } from "../utils/extract-text.service";
-
-interface MultiSearchReplaceService {
-  multiSearchReplaceService: {
-    getSimilarity(original: string, search: string): number;
-    getToolDescription(args: { cwd: string; toolOptions?: { [key: string]: string } }): string;
-    applyDiff(params: ApplyDiffParams): DiffResult;
-  };
-}
-
-const BUFFER_LINES = 40; // Number of extra context lines to show before and after matches
-
-export const multiSearchReplaceService: MultiSearchReplaceService = Alvamind({ name: 'multi-search-replace.service' })
-  .use(textService)
-  .derive(({ textService: { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers } }) => {
-    const self = {
-      getSimilarity: (original: string, search: string): number => {
-        if (search === "") {
-          return 1;
-        }
-
-        const normalizeStr = (str: string) => str.replace(/\s+/g, " ").trim();
-
-        const normalizedOriginal = normalizeStr(original);
-        const normalizedSearch = normalizeStr(search);
-
-        if (normalizedOriginal === normalizedSearch) {
-          return 1;
-        }
-
-        const dist = distance(normalizedOriginal, normalizedSearch);
-        const maxLength = Math.max(normalizedOriginal.length, normalizedSearch.length);
-        return 1 - dist / maxLength;
-      }
-    };
-
-    return {
-      multiSearchReplaceService: {
-        getSimilarity: self.getSimilarity,
-        getToolDescription: (args: { cwd: string; toolOptions?: { [key: string]: string } }): string => {
-          return `## apply_diff
-Description: Request to replace existing code using a search and replace block.
-This tool allows for precise, surgical replaces to files by specifying exactly what content to search for and what to replace it with.
-The tool will maintain proper indentation and formatting while making changes.
-Only a single operation is allowed per tool use.
-The SEARCH section must exactly match existing content including whitespace and indentation.
-If you're not confident in the exact content to search for, use the read_file tool first to get the exact content.
-When applying the diffs, be extra careful to remember to change any closing brackets or other syntax that may be affected by the diff farther down in the file.
-ALWAYS make as many changes in a single 'apply_diff' request as possible using multiple SEARCH/REPLACE blocks
-
-Parameters:
-- path: (required) The path of the file to modify (relative to the current working directory ${args.cwd})
-- diff: (required) The search/replace block defining the changes.
-
-Diff format:
-\`\`\`
-<<<<<<< SEARCH
-:start_line: (required) The line number of original content where the search block starts.
-:end_line: (required) The line number of original content  where the search block ends.
--------
-[exact content to find including whitespace]
-=======
-[new content to replace with]
->>>>>>> REPLACE
-
-\`\`\`
-
-Example:
-
-Original file:
-\`\`\`
-1 | def calculate_total(items):
-2 |     total = 0
-3 |     for item in items:
-4 |         total += item
-5 |     return total
-\`\`\`
-
-Search/Replace content:
-\`\`\`
-<<<<<<< SEARCH
-:start_line:1
-:end_line:5
--------
-def calculate_total(items):
-total = 0
-for item in items:
-total += item
-return total
-=======
-def calculate_total(items):
-"""Calculate total with 10% markup"""
-return sum(item * 1.1 for item in items)
->>>>>>> REPLACE
-
-\`\`\`
-
-Search/Replace content with multi edits:
-\`\`\`
-<<<<<<< SEARCH
-:start_line:1
-:end_line:2
--------
-def calculate_sum(items):
-sum = 0
-=======
-def calculate_sum(items):
-sum = 0
->>>>>>> REPLACE
-
-<<<<<<< SEARCH
-:start_line:4
-:end_line:5
--------
-total += item
-return total
-=======
-sum += item
-return sum
->>>>>>> REPLACE
-\`\`\`
-
-Usage:
-<apply_diff>
-<path>File path here</path>
-<diff>
-Your search/replace content here
-You can use multi search/replace block in one diff block, but make sure to include the line numbers for each block.
-Only use a single line of '=======' between search and replacement content, because multiple '=======' will corrupt the file.
-</diff>
-</apply_diff>`;
-        },
-
-        applyDiff: (
-          {
-            originalContent,
-            diffContent,
-            fuzzyThreshold = 1.0,
-            bufferLines = BUFFER_LINES,
-          }: ApplyDiffParams
-        ): DiffResult => {
-          let matches = [
-            ...diffContent.matchAll(
-              /<<<<<<< SEARCH\n(:start_line:\s*(\d+)\n){0,1}(:end_line:\s*(\d+)\n){0,1}(-------\n){0,1}([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/g,
-            ),
-          ];
-
-          if (matches.length === 0) {
-            return {
-              success: false,
-              error: `Invalid diff format - missing required sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n:start_line: start line\\n:end_line: end line\\n-------\\n[search content]\\n=======\\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include start_line/end_line/SEARCH/REPLACE sections with correct markers`,
-            };
-          }
-
-          const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n";
-          let resultLines = originalContent.split(/\r?\n/);
-          let delta = 0;
-          let diffResults: DiffResult[] = [];
-          let appliedCount = 0;
-          const replacements = matches
-            .map((match) => ({
-              startLine: Number(match[2] ?? 0),
-              endLine: Number(match[4] ?? resultLines.length),
-              searchContent: match[6],
-              replaceContent: match[7],
-            }))
-            .sort((a, b) => a.startLine - b.startLine);
-
-          for (let { searchContent, replaceContent, startLine, endLine } of replacements) {
-            startLine += startLine === 0 ? 0 : delta;
-            endLine += delta;
-
-            if (everyLineHasLineNumbers(searchContent) && everyLineHasLineNumbers(replaceContent)) {
-              searchContent = stripLineNumbers(searchContent);
-              replaceContent = stripLineNumbers(replaceContent);
-            }
-
-            const searchLines = searchContent === "" ? [] : searchContent.split(/\r?\n/);
-            const replaceLines = replaceContent === "" ? [] : replaceContent.split(/\r?\n/);
-
-            if (searchLines.length === 0 && !startLine) {
-              diffResults.push({
-                success: false,
-                error: `Empty search content requires start_line to be specified\n\nDebug Info:\n- Empty search content is only valid for insertions at a specific line\n- For insertions, specify the line number where content should be inserted`,
-              });
-              continue;
-            }
-
-            if (searchLines.length === 0 && startLine && endLine && startLine !== endLine) {
-              diffResults.push({
-                success: false,
-                error: `Empty search content requires start_line and end_line to be the same (got ${startLine}-${endLine})\n\nDebug Info:\n- Empty search content is only valid for insertions at a specific line\n- For insertions, use the same line number for both start_line and end_line`,
-              });
-              continue;
-            }
-
-            let matchIndex = -1;
-            let bestMatchScore = 0;
-            let bestMatchContent = "";
-            const searchChunk = searchLines.join("\n");
-
-            let searchStartIndex = 0;
-            let searchEndIndex = resultLines.length;
-
-            if (startLine && endLine) {
-              const exactStartIndex = startLine - 1;
-              const exactEndIndex = endLine - 1;
-
-              if (exactStartIndex < 0 || exactEndIndex > resultLines.length || exactStartIndex > exactEndIndex) {
-                diffResults.push({
-                  success: false,
-                  error: `Line range ${startLine}-${endLine} is invalid (file has ${resultLines.length} lines)\n\nDebug Info:\n- Requested Range: lines ${startLine}-${endLine}\n- File Bounds: lines 1-${resultLines.length}`,
-                });
-                continue;
-              }
-              const originalChunk = resultLines.slice(exactStartIndex, exactEndIndex + 1).join("\n");
-              const similarity = self.getSimilarity(originalChunk, searchChunk);
-              if (similarity >= fuzzyThreshold) {
-                matchIndex = exactStartIndex;
-                bestMatchScore = similarity;
-                bestMatchContent = originalChunk;
-              } else {
-                searchStartIndex = Math.max(0, startLine - (bufferLines + 1));
-                searchEndIndex = Math.min(resultLines.length, endLine + bufferLines);
-              }
-            }
-            if (matchIndex === -1) {
-              const midPoint = Math.floor((searchStartIndex + searchEndIndex) / 2);
-              let leftIndex = midPoint;
-              let rightIndex = midPoint + 1;
-
-              while (leftIndex >= searchStartIndex || rightIndex <= searchEndIndex - searchLines.length) {
-                if (leftIndex >= searchStartIndex) {
-                  const originalChunk = resultLines.slice(leftIndex, leftIndex + searchLines.length).join("\n")
-                  const similarity = self.getSimilarity(originalChunk, searchChunk)
-                  if (similarity > bestMatchScore) {
-                    bestMatchScore = similarity
-                    matchIndex = leftIndex
-                    bestMatchContent = originalChunk
-                  }
-                  leftIndex--
-                }
-
-                if (rightIndex <= searchEndIndex - searchLines.length) {
-                  const originalChunk = resultLines.slice(rightIndex, rightIndex + searchLines.length).join("\n")
-                  const similarity = self.getSimilarity(originalChunk, searchChunk)
-                  if (similarity > bestMatchScore) {
-                    bestMatchScore = similarity
-                    matchIndex = rightIndex
-                    bestMatchContent = originalChunk
-                  }
-                  rightIndex++
-                }
-              }
-            }
-
-            if (matchIndex === -1 || bestMatchScore < fuzzyThreshold) {
-              const searchChunk = searchLines.join("\n")
-              const originalContentSection =
-                startLine !== undefined && endLine !== undefined
-                  ? `\n\nOriginal Content:\n${addLineNumbers(
-                    resultLines
-                      .slice(
-                        Math.max(0, startLine - 1 - bufferLines),
-                        Math.min(resultLines.length, endLine + bufferLines),
-                      )
-                      .join("\n"),
-                    Math.max(1, startLine - bufferLines),
-                  )}`
-                  : `\n\nOriginal Content:\n${addLineNumbers(resultLines.join("\n"))}`
-
-              const bestMatchSection = bestMatchContent
-                ? `\n\nBest Match Found:\n${addLineNumbers(bestMatchContent, matchIndex + 1)}`
-                : `\n\nBest Match Found:\n(no match)`
-
-              const lineRange =
-                startLine || endLine
-                  ? ` at ${startLine ? `start: ${startLine}` : "start"} to ${endLine ? `end: ${endLine}` : "end"}`
-                  : ""
-
-              diffResults.push({
-                success: false,
-                error: `No sufficiently similar match found${lineRange} (${Math.floor(bestMatchScore * 100)}% similar, needs ${Math.floor(fuzzyThreshold * 100)}%)\n\nDebug Info:\n- Similarity Score: ${Math.floor(bestMatchScore * 100)}%\n- Required Threshold: ${Math.floor(fuzzyThreshold * 100)}%\n- Search Range: ${startLine && endLine ? `lines ${startLine}-${endLine}` : "start to end"}\n- Tip: Use read_file to get the latest content of the file before attempting the diff again, as the file content may have changed\n\nSearch Content:\n${searchChunk}${bestMatchSection}${originalContentSection}`,
-              })
-              continue
-            }
-
-            const matchedLines = resultLines.slice(matchIndex, matchIndex + searchLines.length);
-            const originalIndents = matchedLines.map((line) => {
-              const match = line.match(/^[\t ]*/);
-              return match ? match[0] : "";
-            });
-
-            const searchIndents = searchLines.map((line) => {
-              const match = line.match(/^[\t ]*/);
-              return match ? match[0] : "";
-            });
-
-            const indentedReplaceLines = replaceLines.map((line) => {
-              const matchedIndent = originalIndents[0] || "";
-              const currentIndentMatch = line.match(/^[\t ]*/);
-              const currentIndent = currentIndentMatch ? currentIndentMatch[0] : "";
-              const searchBaseIndent = searchIndents[0] || "";
-
-              const searchBaseLevel = searchBaseIndent.length;
-              const currentLevel = currentIndent.length;
-              const relativeLevel = currentLevel - searchBaseLevel;
-              const finalIndent =
-                relativeLevel < 0
-                  ? matchedIndent.slice(0, Math.max(0, matchedIndent.length + relativeLevel))
-                  : matchedIndent + currentIndent.slice(searchBaseLevel);
-
-              return finalIndent + line.trim();
-            });
-
-            const beforeMatch = resultLines.slice(0, matchIndex);
-            const afterMatch = resultLines.slice(matchIndex + searchLines.length);
-            resultLines = [...beforeMatch, ...indentedReplaceLines, ...afterMatch];
-            delta = delta - matchedLines.length + replaceLines.length;
-            appliedCount++;
-          }
-          const finalContent = resultLines.join(lineEnding);
-          if (appliedCount === 0) {
-            return {
-              success: false,
-              failParts: diffResults,
-            };
-          }
-          return {
-            success: true,
-            content: finalContent,
-            failParts: diffResults,
-          };
-        },
-      }
-    }
-  });
-````
-
 ## File: src/strategies/new-unified/edit-strategies.service.ts
 ````typescript
 import { diff_match_patch } from "diff-match-patch"
@@ -2234,6 +1889,373 @@ const self = editStrategiesService.editStrategiesService
 export const { applyContextMatching, applyDMP, applyInMemoryFallback } = self
 ````
 
+## File: src/strategies/multi-search-replace.service.ts
+````typescript
+// diff-apply-alvamind/src/strategies/multi-search-replace.service.ts
+import { DiffResult, ApplyDiffParams } from "../types";
+import { distance } from "fastest-levenshtein";
+import Alvamind from 'alvamind';
+import { textService } from "../utils/extract-text.service";
+
+interface MultiSearchReplaceService {
+  multiSearchReplaceService: {
+    getSimilarity(original: string, search:string): number;
+    getToolDescription(args: { cwd: string; toolOptions?: { [key: string]: string } }): string;
+    applyDiff(params: ApplyDiffParams): DiffResult;
+  };
+}
+
+const BUFFER_LINES = 40; // Number of extra context lines to show before and after matches
+
+export const multiSearchReplaceService: MultiSearchReplaceService = Alvamind({ name: 'multi-search-replace.service' })
+  .use(textService)
+  .derive(({ textService: { addLineNumbers, everyLineHasLineNumbers, stripLineNumbers } }) => {
+    const self = {
+      getSimilarity: (original: string, search: string): number => {
+        if (search === "") {
+          return 1;
+        }
+
+        const normalizeStr = (str: string) => str.replace(/\s+/g, " ").trim();
+
+        const normalizedOriginal = normalizeStr(original);
+        const normalizedSearch = normalizeStr(search);
+
+        if (normalizedOriginal === normalizedSearch) {
+          return 1;
+        }
+
+        const dist = distance(normalizedOriginal, normalizedSearch);
+        const maxLength = Math.max(normalizedOriginal.length, normalizedSearch.length);
+        return 1 - dist / maxLength;
+      }
+    };
+
+    return {
+      multiSearchReplaceService: {
+        getSimilarity: self.getSimilarity,
+        getToolDescription: (args: { cwd: string; toolOptions?: { [key: string]: string } }): string => {
+          return `## apply_diff
+Description: Request to replace existing code using a search and replace block.
+This tool allows for precise, surgical replaces to files by specifying exactly what content to search for and what to replace it with.
+The tool will maintain proper indentation and formatting while making changes.
+Only a single operation is allowed per tool use.
+The SEARCH section must exactly match existing content including whitespace and indentation.
+If you're not confident in the exact content to search for, use the read_file tool first to get the exact content.
+When applying the diffs, be extra careful to remember to change any closing brackets or other syntax that may be affected by the diff farther down in the file.
+ALWAYS make as many changes in a single 'apply_diff' request as possible using multiple SEARCH/REPLACE blocks
+
+Parameters:
+- path: (required) The path of the file to modify (relative to the current working directory ${args.cwd})
+- diff: (required) The search/replace block defining the changes.
+
+Diff format:
+\`\`\`
+<<<<<<< SEARCH
+:start_line: (required) The line number of original content where the search block starts.
+:end_line: (required) The line number of original content  where the search block ends.
+-------
+[exact content to find including whitespace]
+=======
+[new content to replace with]
+>>>>>>> REPLACE
+
+\`\`\`
+
+Example:
+
+Original file:
+\`\`\`
+1 | def calculate_total(items):
+2 |     total = 0
+3 |     for item in items:
+4 |         total += item
+5 |     return total
+\`\`\`
+
+Search/Replace content:
+\`\`\`
+<<<<<<< SEARCH
+:start_line:1
+:end_line:5
+-------
+def calculate_total(items):
+total = 0
+for item in items:
+total += item
+return total
+=======
+def calculate_total(items):
+"""Calculate total with 10% markup"""
+return sum(item * 1.1 for item in items)
+>>>>>>> REPLACE
+
+\`\`\`
+
+Search/Replace content with multi edits:
+\`\`\`
+<<<<<<< SEARCH
+:start_line:1
+:end_line:2
+-------
+def calculate_sum(items):
+sum = 0
+=======
+def calculate_sum(items):
+sum = 0
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+:start_line:4
+:end_line:5
+-------
+total += item
+return total
+=======
+sum += item
+return sum
+>>>>>>> REPLACE
+\`\`\`
+
+Usage:
+<apply_diff>
+<path>File path here</path>
+<diff>
+Your search/replace content here
+You can use multi search/replace block in one diff block, but make sure to include the line numbers for each block.
+Only use a single line of '=======' between search and replacement content, because multiple '=======' will corrupt the file.
+</diff>
+</apply_diff>`;
+        },
+
+        applyDiff: (
+          {
+            originalContent,
+            diffContent,
+            fuzzyThreshold = 1.0,
+            bufferLines = BUFFER_LINES,
+            startLine: paramStartLine,
+            endLine: paramEndLine,
+          }: ApplyDiffParams
+        ): DiffResult => {
+          let replacements;
+          const initialResultLines = originalContent.split(/\r?\n/);
+
+          if (paramStartLine !== undefined && paramEndLine !== undefined) {
+            // Mode: single search/replace from search-replace.service
+            const match = diffContent.match(/<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/);
+            if (!match) {
+              return {
+                success: false,
+                error: `Invalid diff format - missing required SEARCH/REPLACE sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n[search content]\\n=======\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include both SEARCH and REPLACE sections with correct markers`,
+              };
+            }
+            const [_, searchBody, replaceBody] = match;
+            replacements = [{
+              startLine: paramStartLine,
+              endLine: paramEndLine,
+              searchContent: searchBody,
+              replaceContent: replaceBody,
+            }];
+          } else {
+            // Mode: multi search/replace
+            const matches = [...diffContent.matchAll(
+              /<<<<<<< SEARCH\n(:start_line:\s*(\d+)\n){0,1}(:end_line:\s*(\d+)\n){0,1}(-------\n){0,1}([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/g,
+            )];
+
+            if (matches.length === 0) {
+              return {
+                success: false,
+                error: `Invalid diff format - missing required sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n:start_line: start line\\n:end_line: end line\\n-------\\n[search content]\\n=======\\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include start_line/end_line/SEARCH/REPLACE sections with correct markers`,
+              };
+            }
+            replacements = matches
+              .map((match) => ({
+                startLine: Number(match[2] ?? 0),
+                endLine: Number(match[4] ?? initialResultLines.length),
+                searchContent: match[6],
+                replaceContent: match[7],
+              }))
+              .sort((a, b) => a.startLine - b.startLine);
+          }
+
+          const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n";
+          let resultLines = [...initialResultLines];
+          let delta = 0;
+          let diffResults: DiffResult[] = [];
+          let appliedCount = 0;
+
+          for (let { searchContent, replaceContent, startLine, endLine } of replacements) {
+            startLine += startLine === 0 ? 0 : delta;
+            endLine += delta;
+
+            if (everyLineHasLineNumbers(searchContent) && everyLineHasLineNumbers(replaceContent)) {
+              searchContent = stripLineNumbers(searchContent);
+              replaceContent = stripLineNumbers(replaceContent);
+            }
+
+            const searchLines = searchContent === "" ? [] : searchContent.split(/\r?\n/);
+            const replaceLines = replaceContent === "" ? [] : replaceContent.split(/\r?\n/);
+
+            if (searchLines.length === 0 && !startLine) {
+              diffResults.push({
+                success: false,
+                error: `Empty search content requires start_line to be specified\n\nDebug Info:\n- Empty search content is only valid for insertions at a specific line\n- For insertions, specify the line number where content should be inserted`,
+              });
+              continue;
+            }
+
+            if (searchLines.length === 0 && startLine && endLine && startLine !== endLine) {
+              diffResults.push({
+                success: false,
+                error: `Empty search content requires start_line and end_line to be the same (got ${startLine}-${endLine})\n\nDebug Info:\n- Empty search content is only valid for insertions at a specific line\n- For insertions, use the same line number for both start_line and end_line`,
+              });
+              continue;
+            }
+
+            let matchIndex = -1;
+            let bestMatchScore = 0;
+            let bestMatchContent = "";
+            const searchChunk = searchLines.join("\n");
+
+            let searchStartIndex = 0;
+            let searchEndIndex = resultLines.length;
+
+            if (startLine && endLine) {
+              const exactStartIndex = startLine - 1;
+              const exactEndIndex = endLine - 1;
+
+              if (exactStartIndex < 0 || exactEndIndex > resultLines.length || exactStartIndex > exactEndIndex) {
+                diffResults.push({
+                  success: false,
+                  error: `Line range ${startLine}-${endLine} is invalid (file has ${resultLines.length} lines)\n\nDebug Info:\n- Requested Range: lines ${startLine}-${endLine}\n- File Bounds: lines 1-${resultLines.length}`,
+                });
+                continue;
+              }
+              const originalChunk = resultLines.slice(exactStartIndex, exactEndIndex + 1).join("\n");
+              const similarity = self.getSimilarity(originalChunk, searchChunk);
+              if (similarity >= fuzzyThreshold) {
+                matchIndex = exactStartIndex;
+                bestMatchScore = similarity;
+                bestMatchContent = originalChunk;
+              } else {
+                searchStartIndex = Math.max(0, startLine - (bufferLines + 1));
+                searchEndIndex = Math.min(resultLines.length, endLine + bufferLines);
+              }
+            }
+            if (matchIndex === -1) {
+              const midPoint = Math.floor((searchStartIndex + searchEndIndex) / 2);
+              let leftIndex = midPoint;
+              let rightIndex = midPoint + 1;
+
+              while (leftIndex >= searchStartIndex || rightIndex <= searchEndIndex - searchLines.length) {
+                if (leftIndex >= searchStartIndex) {
+                  const originalChunk = resultLines.slice(leftIndex, leftIndex + searchLines.length).join("\n")
+                  const similarity = self.getSimilarity(originalChunk, searchChunk)
+                  if (similarity > bestMatchScore) {
+                    bestMatchScore = similarity
+                    matchIndex = leftIndex
+                    bestMatchContent = originalChunk
+                  }
+                  leftIndex--
+                }
+
+                if (rightIndex <= searchEndIndex - searchLines.length) {
+                  const originalChunk = resultLines.slice(rightIndex, rightIndex + searchLines.length).join("\n")
+                  const similarity = self.getSimilarity(originalChunk, searchChunk)
+                  if (similarity > bestMatchScore) {
+                    bestMatchScore = similarity
+                    matchIndex = rightIndex
+                    bestMatchContent = originalChunk
+                  }
+                  rightIndex++
+                }
+              }
+            }
+
+            if (matchIndex === -1 || bestMatchScore < fuzzyThreshold) {
+              const searchChunk = searchLines.join("\n")
+              const originalContentSection =
+                startLine !== undefined && endLine !== undefined
+                  ? `\n\nOriginal Content:\n${addLineNumbers(
+                    resultLines
+                      .slice(
+                        Math.max(0, startLine - 1 - bufferLines),
+                        Math.min(resultLines.length, endLine + bufferLines),
+                      )
+                      .join("\n"),
+                    Math.max(1, startLine - bufferLines),
+                  )}`
+                  : `\n\nOriginal Content:\n${addLineNumbers(resultLines.join("\n"))}`
+
+              const bestMatchSection = bestMatchContent
+                ? `\n\nBest Match Found:\n${addLineNumbers(bestMatchContent, matchIndex + 1)}`
+                : `\n\nBest Match Found:\n(no match)`
+
+              const lineRange =
+                startLine || endLine
+                  ? ` at ${startLine ? `start: ${startLine}` : "start"} to ${endLine ? `end: ${endLine}` : "end"}`
+                  : ""
+
+              diffResults.push({
+                success: false,
+                error: `No sufficiently similar match found${lineRange} (${Math.floor(bestMatchScore * 100)}% similar, needs ${Math.floor(fuzzyThreshold * 100)}%)\n\nDebug Info:\n- Similarity Score: ${Math.floor(bestMatchScore * 100)}%\n- Required Threshold: ${Math.floor(fuzzyThreshold * 100)}%\n- Search Range: ${startLine && endLine ? `lines ${startLine}-${endLine}` : "start to end"}\n- Tip: Use read_file to get the latest content of the file before attempting the diff again, as the file content may have changed\n\nSearch Content:\n${searchChunk}${bestMatchSection}${originalContentSection}`,
+              })
+              continue
+            }
+
+            const matchedLines = resultLines.slice(matchIndex, matchIndex + searchLines.length);
+            const originalIndents = matchedLines.map((line) => {
+              const match = line.match(/^[\t ]*/);
+              return match ? match[0] : "";
+            });
+
+            const searchIndents = searchLines.map((line) => {
+              const match = line.match(/^[\t ]*/);
+              return match ? match[0] : "";
+            });
+
+            const indentedReplaceLines = replaceLines.map((line) => {
+              const matchedIndent = originalIndents[0] || "";
+              const currentIndentMatch = line.match(/^[\t ]*/);
+              const currentIndent = currentIndentMatch ? currentIndentMatch[0] : "";
+              const searchBaseIndent = searchIndents[0] || "";
+
+              const searchBaseLevel = searchBaseIndent.length;
+              const currentLevel = currentIndent.length;
+              const relativeLevel = currentLevel - searchBaseLevel;
+              const finalIndent =
+                relativeLevel < 0
+                  ? matchedIndent.slice(0, Math.max(0, matchedIndent.length + relativeLevel))
+                  : matchedIndent + currentIndent.slice(searchBaseLevel);
+
+              return finalIndent + line.trim();
+            });
+
+            const beforeMatch = resultLines.slice(0, matchIndex);
+            const afterMatch = resultLines.slice(matchIndex + searchLines.length);
+            resultLines = [...beforeMatch, ...indentedReplaceLines, ...afterMatch];
+            delta = delta - matchedLines.length + replaceLines.length;
+            appliedCount++;
+          }
+          const finalContent = resultLines.join(lineEnding);
+          if (appliedCount === 0 && diffResults.length > 0) {
+            return {
+              success: false,
+              failParts: diffResults,
+            };
+          }
+          return {
+            success: true,
+            content: finalContent,
+            failParts: diffResults.length > 0 ? diffResults : undefined,
+          };
+        },
+      }
+    }
+  });
+````
+
 ## File: src/strategies/search-replace.service.ts
 ````typescript
 // diff-apply-alvamind/src/strategies/search-replace.service.ts
@@ -2320,48 +2342,15 @@ Your search/replace content here
 </apply_diff>`;
       },
 
-      applyDiff: (
-        {
-          originalContent,
-          diffContent,
-          fuzzyThreshold,
-          bufferLines,
-          startLine,
-          endLine,
-        }: ApplyDiffParams
-      ): DiffResult => {
-        const match = diffContent.match(/<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/);
-        if (!match) {
-          return {
-            success: false,
-            error: `Invalid diff format - missing required SEARCH/REPLACE sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n[search content]\\n=======\\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include both SEARCH and REPLACE sections with correct markers`,
-          };
-        }
-
-        if (!startLine || !endLine) {
+      applyDiff: (params: ApplyDiffParams): DiffResult => {
+        if (params.startLine === undefined || params.endLine === undefined) {
           return {
             success: false,
             error: `start_line and end_line are required for this diff strategy.`,
           };
         }
 
-        const [_, searchBody, replaceBody] = match;
-
-        const multiFormatDiff = `<<<<<<< SEARCH
-:start_line: ${startLine}
-:end_line: ${endLine}
--------
-${searchBody}
-=======
-${replaceBody}
->>>>>>> REPLACE`;
-
-        const result = multiSearchReplaceService.multiSearchReplaceService.applyDiff({
-          originalContent,
-          diffContent: multiFormatDiff,
-          fuzzyThreshold,
-          bufferLines,
-        });
+        const result = multiSearchReplaceService.multiSearchReplaceService.applyDiff(params);
 
         // The multi-search-replace service returns a result that may contain failParts
         // for each block. Since this strategy only ever has one block, we can simplify
