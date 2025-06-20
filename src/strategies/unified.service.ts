@@ -126,16 +126,32 @@ Your diff here
             };
           }
 
-          const result = applyPatch(originalContent, diffContent);
-          if (result === false) {
+          // Check for valid hunk headers
+          if (!diffContent.match(/@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/)) {
             return {
               success: false,
-              error: "Failed to apply unified diff - patch rejected",
+              error: "Invalid unified diff format - missing hunk headers",
               details: {
                 searchContent: diffContent,
               },
             };
           }
+
+          // Apply the patch
+          const result = applyPatch(originalContent, diffContent);
+          
+          // Handle the result
+          if (result === false) {
+            // Try to provide a more helpful error message
+            return {
+              success: false,
+              error: "Failed to apply unified diff - patch rejected. Check that the line numbers match the current file content.",
+              details: {
+                searchContent: diffContent,
+              },
+            };
+          }
+          
           return {
             success: true,
             content: result,

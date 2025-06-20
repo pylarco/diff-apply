@@ -20,7 +20,7 @@ describe("SearchReplaceDiffStrategy: getToolDescription", () => {
 
   it("should document start_line and end_line parameters", async () => {
     const description = getToolDescription({ cwd: "/test" })
-    expect(description).toContain("start_line: (required) The line number where the search block starts.")
-    expect(description).toContain("end_line: (required) The line number where the search block ends.")
+    expect(description).toContain(":start_line: (required) The line number of original content where the search block starts.")
+    expect(description).toContain(":end_line: (required) The line number of original content where the search block ends.")
   })
 })

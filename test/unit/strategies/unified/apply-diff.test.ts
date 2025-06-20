@@ -180,6 +180,7 @@ async function processFile(path: string) {
 export { processFile };`
 
     const result = await applyDiff(originalContent, diffContent)
+    console.log("Unified diff result:", JSON.stringify(result, null, 2))
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.content).toBe(expected)
