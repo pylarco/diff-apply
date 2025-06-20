@@ -1,5 +1,5 @@
 {
-  "name": "diff-apply",
+  "name": "diff-patcher",
   "version": "1.0.5",
   "description": "A utility for applying file diffs programmatically",
   "main": "dist/index.js",
@@ -51,11 +51,11 @@
     "text",
     "diff-apply"
   ],
-  "author": "Alvamind",
+  "author": "pylarco",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/alvamind/diff-apply-alvamind.git"
+    "url": "https://github.com/pylarco/diff-patcher.git"
   },
   "publishConfig": {
     "access": "public"

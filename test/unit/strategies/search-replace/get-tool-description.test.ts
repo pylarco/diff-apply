@@ -1,6 +1,4 @@
-import { searchReplaceService } from "../../../../dist"
-
-const { getToolDescription } = searchReplaceService.searchReplaceService
+import { getToolDescription } from "../../../../src/strategies/multi-search-replace.service"
 
 describe("SearchReplaceDiffStrategy: getToolDescription", () => {
   it("should include the current working directory", async () => {

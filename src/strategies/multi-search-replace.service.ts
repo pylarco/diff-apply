@@ -21,54 +21,46 @@ export const multiSearchReplaceService: MultiSearchReplaceService = Alvamind({ n
         getSimilarity: getLevenshteinSimilarity,
         getToolDescription: (args: { cwd: string; toolOptions?: { [key: string]: string } }): string => {
           return `## apply_diff
-Description: Request to replace existing code using search and replace blocks. This tool allows for precise, surgical replacements to files by specifying what content to search for and what to replace it with. It supports single or multiple replacements in one call. The SEARCH section must exactly match existing content including whitespace and indentation.
+Description: Replaces existing code using one or more search-and-replace blocks. This tool is for precise, surgical replacements, where the SEARCH block must exactly match existing content, including whitespace and indentation.
 
 Parameters:
-- path: (required) The path of the file to modify (relative to the current working directory ${args.cwd})
+- path: (required) The path of the file to modify (relative to the current working directory ${args.cwd}).
 - diff: (required) The search/replace block(s) defining the changes.
-- start_line: (optional) The line number where the search block starts. Use only for a single replacement.
-- end_line: (optional) The line number where the search block ends. Use only for a single replacement.
+- start_line: (optional) The line number where a single search block starts.
+- end_line: (optional) The line number where a single search block ends.
 
-Diff format:
+Diff Format:
 
-**Mode 1: Multiple replacements (or single with embedded line numbers)**
-Each block must contain its own line numbers.
+Use one or more of the following blocks in the 'diff' parameter.
+
 \`\`\`
 <<<<<<< SEARCH
-:start_line: (required) The line number of original content where the search block starts.
-:end_line: (required) The line number of original content where the search block ends.
--------
-[exact content to find including whitespace]
-=======
-[new content to replace with]
->>>>>>> REPLACE
-... more blocks ...
-\`\`\`
-
-**Mode 2: Single replacement (using top-level start_line/end_line parameters)**
-The diff block should not contain line numbers.
-\`\`\`
-<<<<<<< SEARCH
-[exact content to find including whitespace]
+// For multiple blocks, specify line numbers here.
+// :start_line: (required) The line number of original content where the search block starts.
+// :end_line: (required) The line number of original content where the search block ends.
+// -------
+[exact content to find, including whitespace]
 =======
 [new content to replace with]
 >>>>>>> REPLACE
 \`\`\`
 
-Example (Mode 1 - multiple edits):
+- **Single Replacement**: You can provide \`start_line\` and \`end_line\` as top-level parameters instead of inside the \`SEARCH\` block.
+- **Multiple Replacements**: Define \`start_line\` and \`end_line\` inside each \`SEARCH\` block.
+
+Example (Multiple Edits):
 \`\`\`
 <<<<<<< SEARCH
-:start_line:2
-:end_line:2
+:start_line: 2
+:end_line: 2
 -------
 sum = 0
 =======
 total = 0
 >>>>>>> REPLACE
-
 <<<<<<< SEARCH
-:start_line:4
-:end_line:5
+:start_line: 4
+:end_line: 5
 -------
 total += item
 return total
@@ -78,29 +70,13 @@ return sum
 >>>>>>> REPLACE
 \`\`\`
 
-Example (Mode 2 - single edit with params):
-(Use with <start_line>1</start_line> and <end_line>5</end_line>)
-\`\`\`
-<<<<<<< SEARCH
-def calculate_total(items):
-total = 0
-for item in items:
-total += item
-return total
-=======
-def calculate_total(items):
-"""Calculate total with 10% markup"""
-return sum(item * 1.1 for item in items)
->>>>>>> REPLACE
-\`\`\`
-
 Usage:
 <apply_diff>
 <path>File path here</path>
 <diff>
 Your search/replace content here
 </diff>
-<!-- For Mode 2, add start/end line numbers here -->
+<!-- For a single replacement, you can optionally add start/end line numbers here -->
 </apply_diff>`;
         },
 

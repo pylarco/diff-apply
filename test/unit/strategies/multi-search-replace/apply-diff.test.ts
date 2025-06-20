@@ -15,7 +15,7 @@ function hello() {
 }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe('function hello() {\n    console.log("hello world")\n}\n')
@@ -35,7 +35,7 @@ function example() {
 }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe("\nfunction example() {\n    return 43;\n}\n\n")
@@ -55,7 +55,7 @@ function test() {
 }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe("    function test() {\n        return false;\n    }\n")
@@ -75,7 +75,7 @@ function test() {
 }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe("function test() {\n\treturn false;\n}\n")
@@ -99,7 +99,7 @@ function test() {
 \t}
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(
@@ -122,7 +122,7 @@ function test() {
 }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe("\tfunction test() {\n\t\t// Add comment\n\t\treturn false;\n\t}")
@@ -144,7 +144,7 @@ function test() {
 \t}
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(
@@ -166,7 +166,7 @@ function test() {
 }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe("function test() {\r\n    return false;\r\n}\r\n")
@@ -186,7 +186,7 @@ function hello() {
 }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(false)
     })
 
@@ -194,7 +194,7 @@ function hello() {
       const originalContent = 'function hello() {\n    console.log("hello")\n}\n'
       const diffContent = `test.ts\nInvalid diff format`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(false)
     })
 
@@ -214,7 +214,7 @@ function hello() {
     }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(
@@ -236,7 +236,7 @@ function hello() {
     end
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe("    modified\n        still indented\n    end\n")
@@ -256,7 +256,7 @@ function hello() {
 				}}
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(
@@ -299,7 +299,7 @@ class Example {
     }
 >>>>>>> REPLACE`.trim()
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(
@@ -345,7 +345,7 @@ class Example {
     }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(`class Example {
@@ -381,7 +381,7 @@ class Example {
             process(item)
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(`def example():
@@ -414,7 +414,7 @@ class Example {
     if (x) {
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(`function test() {
@@ -455,7 +455,7 @@ class Example {
     }
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(`class Test {
@@ -490,7 +490,7 @@ class Example {
         this.setup();
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(`class Example {
@@ -519,7 +519,7 @@ class Example {
 this.init();
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(`class Example {
@@ -553,7 +553,7 @@ this.init();
     this.validate();
 >>>>>>> REPLACE`
 
-      const result = await applyDiff(originalContent, diffContent)
+      const result = await applyDiff({ originalContent, diffContent })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(`class Example {
@@ -600,7 +600,14 @@ function five() {
       // Search around the middle (function three)
       // Even though all functions contain the target text,
       // it should match the one closest to line 9 first
-      const result = await applyDiff(originalContent, diffContent, 0.9, 5, 9, 9)
+      const result = await applyDiff({ 
+        originalContent, 
+        diffContent,
+        fuzzyThreshold: 0.9,
+        bufferLines: 5,
+        startLine: 9,
+        endLine: 9
+      })
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.content).toBe(`function one() {

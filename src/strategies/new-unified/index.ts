@@ -133,38 +133,25 @@ export const newUnifiedDiffStrategyService: NewUnifiedDiffStrategyService = Alva
         const getToolDescription = (args: { cwd: string; toolOptions?: { [key: string]: string } }): string => {
           return `# apply_diff Tool - Generate Precise Code Changes
 
-Generate a unified diff that can be cleanly applied to modify code files.
+Description: Modifies a file by applying a set of changes described in the unified diff format. This is ideal for surgical code edits.
 
-## Step-by-Step Instructions:
+Step-by-Step Instructions:
+1.  **File Headers**: Start with \`--- a/path/to/file\` and \`+++ b/path/to/file\`.
+2.  **Hunk Separator**: Each change section (hunk) should start with \`@@ ... @@\`.
+3.  **Context is Key**: Include 2-3 unchanged lines (context) before and after your changes to ensure the correct location is found.
+4.  **Line Prefixes**:
+    - \`-\`: Mark removed lines.
+    - \`+\`: Mark added lines.
+    - \` \`: Unchanged context lines.
+5.  **Indentation**: Preserve the exact original indentation for all lines.
+6.  **Grouping**: Keep related changes within a single hunk. For logically separate changes, use multiple hunks.
 
-1. Start with file headers:
-   - First line: "--- {original_file_path}"
-   - Second line: "+++ {new_file_path}"
+Requirements:
+- Include sufficient context before and after changes
+- Match indentation precisely
+- Group related changes together
 
-2. For each change section:
-   - Begin with "@@ ... @@" separator line without line numbers
-   - Include 2-3 lines of context before and after changes
-   - Mark removed lines with "-"
-   - Mark added lines with "+"
-   - Preserve exact indentation
-
-3. Group related changes:
-   - Keep related modifications in the same hunk
-   - Start new hunks for logically separate changes
-   - When modifying functions/methods, include the entire block
-
-## Requirements:
-
-1. MUST include exact indentation
-2. MUST include sufficient context for unique matching
-3. MUST group related changes together
-4. MUST use proper unified diff format
-5. MUST NOT include timestamps in file headers
-6. MUST NOT include line numbers in the @@ header
-
-## Examples:
-
-✅ Good diff (follows all requirements):
+Examples:
 \`\`\`diff
 --- src/utils.ts
 +++ src/utils.ts
@@ -176,19 +163,9 @@ Generate a unified diff that can be cleanly applied to modify code files.
 +      return sum(item.price for item in items)
 \`\`\`
 
-❌ Bad diff (violates requirements #1 and #2):
-\`\`\`diff
---- src/utils.ts
-+++ src/utils.ts
-@@ ... @@
--total = 0
--for item in items:
-+return sum(item.price for item in items)
-\`\`\`
-
 Parameters:
-- path: (required) File path relative to ${args.cwd}
-- diff: (required) Unified diff content in unified format to apply to the file.
+- path: (required) File path relative to ${args.cwd}.
+- diff: (required) The diff content to apply, following the format above.
 
 Usage:
 <apply_diff>
