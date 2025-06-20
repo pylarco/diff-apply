@@ -16,7 +16,7 @@ interface EditStrategiesService {
 
 export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'edit-strategies.service' })
   .use(searchStrategiesService)
-  .derive(({ searchStrategiesService: { validateEditResult } }) => ({
+  .derive(({ searchStrategiesService: { validateEditResult, getTextFromChanges } }) => ({
     editStrategiesService: {
 
       applyPatch: (originalContent: string, searchContent: string, replaceContent: string): string => {
@@ -138,34 +138,11 @@ export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'ed
 
         const dmp = new diff_match_patch()
 
+        const beforeText = getTextFromChanges(hunk.changes, ["context", "remove"])
+        const afterText = getTextFromChanges(hunk.changes, ["context", "add"])
+
         // Calculate total lines in before block accounting for multi-line content
-        const beforeLineCount = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "remove")
-          .reduce((count, change) => count + change.content.split("\n").length, 0)
-
-        // Build BEFORE block (context + removals)
-        const beforeLines = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "remove")
-          .map((change) => {
-            if (change.originalLine) {
-              return change.originalLine
-            }
-            return change.indent ? change.indent + change.content : change.content
-          })
-
-        // Build AFTER block (context + additions)
-        const afterLines = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "add")
-          .map((change) => {
-            if (change.originalLine) {
-              return change.originalLine
-            }
-            return change.indent ? change.indent + change.content : change.content
-          })
-
-        // Convert to text with proper line endings
-        const beforeText = beforeLines.join("\n")
-        const afterText = afterLines.join("\n")
+        const beforeLineCount = beforeText.split("\n").length
 
         // Create and apply patch
         const patch = dmp.patch_make(beforeText, afterText)
@@ -194,17 +171,8 @@ export const editStrategiesService: EditStrategiesService = Alvamind({ name: 'ed
       // In-memory fallback strategy (replacing the Git-based one)
       applyInMemoryFallback: async (hunk: Hunk, content: string[]): Promise<EditResult> => {
         try {
-          // Extract the search and replace blocks from the hunk
-          const searchLines = hunk.changes
-            .filter((change) => change.type === "context" || change.type === "remove")
-            .map((change) => change.originalLine || (change.indent || "") + change.content);
-
-          const replaceLines = hunk.changes
-            .filter((change) => change.type === "context" || change.type === "add")
-            .map((change) => change.originalLine || (change.indent || "") + change.content);
-
-          const searchText = searchLines.join("\n");
-          const replaceText = replaceLines.join("\n");
+          const searchText = getTextFromChanges(hunk.changes, ["context", "remove"]);
+          const replaceText = getTextFromChanges(hunk.changes, ["context", "add"]);
           const originalText = content.join("\n");
 
           // Check if the search content exists in the original content

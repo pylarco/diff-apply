@@ -25,7 +25,7 @@ interface NewUnifiedDiffStrategyService {
 export const newUnifiedDiffStrategyService: NewUnifiedDiffStrategyService = Alvamind({ name: 'new-unified-diff-strategy.service' })
   .use(editStrategiesService)
   .use(searchStrategiesService)
-  .derive(({ editStrategiesService: { applyEdit }, searchStrategiesService: { findBestMatch, prepareSearchString } }) => ({
+  .derive(({ editStrategiesService: { applyEdit }, searchStrategiesService: { findBestMatch, getTextFromChanges } }) => ({
     newUnifiedDiffStrategyService: {
 
       confidenceThreshold: 1,
@@ -252,7 +252,7 @@ Your diff here
         };
 
         const processHunk = async (hunk: Hunk, content: string[]) => {
-          const contextStr = prepareSearchString(hunk.changes);
+          const contextStr = getTextFromChanges(hunk.changes, ["context", "remove"]);
           const searchResult = findBestMatch(contextStr, content, 0, confidenceThresholdValue);
 
           if (searchResult.confidence < confidenceThresholdValue) {

@@ -47,10 +47,12 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         return uniqueCount / uniqueLines.size
       },
 
-      // Helper function to prepare search string from context
-      prepareSearchString: (changes: Change[]): string => {
-        const lines = changes.filter((c) => c.type === "context" || c.type === "remove").map((c) => c.originalLine)
-        return lines.join("\n")
+      // Helper function to build text from hunk changes
+      getTextFromChanges: (changes: Change[], types: Array<'context' | 'add' | 'remove'>): string => {
+        return changes
+          .filter((change) => types.includes(change.type))
+          .map((change) => change.originalLine ?? (change.indent ? change.indent + change.content : change.content))
+          .join("\n")
       },
 
       // Helper function to evaluate similarity between two texts
@@ -72,49 +74,35 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
 
       // Helper function to validate edit results using hunk information
       validateEditResult: (hunk: Hunk, result: string): number => {
-        // Build the expected text from the hunk
-        const expectedText = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "add")
-          .map((change) => (change.indent ? change.indent + change.content : change.content))
-          .join("\n")
-
-        // Calculate similarity between the result and expected text
+        const expectedText = self.getTextFromChanges(hunk.changes, ["context", "add"])
+        const originalText = self.getTextFromChanges(hunk.changes, ["context", "remove"])
         const similarity = self.getDMPSimilarity(expectedText, result)
-
-        // If the result is unchanged from original, return low confidence
-        const originalText = hunk.changes
-          .filter((change) => change.type === "context" || change.type === "remove")
-          .map((change) => (change.indent ? change.indent + change.content : change.content))
-          .join("\n")
-
         const originalSimilarity = self.getDMPSimilarity(originalText, result)
+
         if (originalSimilarity > 0.97 && similarity !== 1) {
           return 0.8 * similarity // Some confidence since we found the right location
         }
-
-        // For partial matches, scale the confidence but keep it high if we're close
         return similarity
       },
-
+      
       // Helper function to validate context lines against original content
-      validateContextLines: (searchStr: string, content: string, confidenceThreshold: number): number => {
-        // Extract just the context lines from the search string
-        const contextLines = searchStr.split("\n").filter((line) => !line.startsWith("-")) // Exclude removed lines
-
-        // Compare context lines with content
-        const similarity = self.evaluateSimilarity(contextLines.join("\n"), content)
-
-        // Get adaptive threshold based on content size
-        const threshold = self.getAdaptiveThreshold(content.split("\n").length, confidenceThreshold)
-
-        // Calculate uniqueness boost
-        const uniquenessScore = self.evaluateContentUniqueness(searchStr, content.split("\n"))
+      validateContextLines: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number): number => {
+        const contextLines = searchStr.split("\n").filter((line) => !line.startsWith("-"))
+        const similarity = self.evaluateSimilarity(contextLines.join("\n"), candidateStr)
+        const threshold = self.getAdaptiveThreshold(fullContent.length, confidenceThreshold)
+        const uniquenessScore = self.evaluateContentUniqueness(searchStr, fullContent)
         const uniquenessBoost = uniquenessScore * UNIQUE_CONTENT_BOOST
 
-        // Adjust confidence based on threshold and uniqueness
         return similarity < threshold ? similarity * 0.3 + uniquenessBoost : similarity + uniquenessBoost
       },
 
+      // Helper function to calculate match confidence
+      calculateMatchConfidence: (searchStr: string, candidateStr: string, fullContent: string[], confidenceThreshold: number): number => {
+        const dmpSimilarity = self.getDMPSimilarity(searchStr, candidateStr);
+        const contextSimilarity = self.validateContextLines(searchStr, candidateStr, fullContent, confidenceThreshold);
+        return Math.min(dmpSimilarity, contextSimilarity);
+      },
+      
       // Helper function to create overlapping windows
       createOverlappingWindows: (
         content: string[],
@@ -219,9 +207,7 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
               )
               .join("\n")
 
-            const similarity = self.getDMPSimilarity(searchStr, matchedContent)
-            const contextSimilarity = self.validateContextLines(searchStr, matchedContent, confidenceThreshold)
-            const confidence = Math.min(similarity, contextSimilarity)
+            const confidence = self.calculateMatchConfidence(searchStr, matchedContent, content, confidenceThreshold);
 
             matches.push({
               index: startIndex + windowData.startIndex + windowStr.slice(0, exactMatch).split("\n").length - 1,
@@ -251,9 +237,8 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
           const windowStr = content.slice(i, i + searchLines.length).join("\n")
           const score = compareTwoStrings(searchStr, windowStr)
           if (score > bestScore && score >= confidenceThreshold) {
-            const similarity = self.getDMPSimilarity(searchStr, windowStr)
-            const contextSimilarity = self.validateContextLines(searchStr, windowStr, confidenceThreshold)
-            const adjustedScore = Math.min(similarity, contextSimilarity) * score
+            const confidence = self.calculateMatchConfidence(searchStr, windowStr, content, confidenceThreshold);
+            const adjustedScore = confidence * score
 
             if (adjustedScore > bestScore) {
               bestScore = adjustedScore
@@ -286,9 +271,7 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
         if (candidates.length > 0) {
           const closestMatch = closest(searchStr, candidates)
           const index = startIndex + candidates.indexOf(closestMatch)
-          const similarity = self.getDMPSimilarity(searchStr, closestMatch)
-          const contextSimilarity = self.validateContextLines(searchStr, closestMatch, confidenceThreshold)
-          const confidence = Math.min(similarity, contextSimilarity)
+          const confidence = self.calculateMatchConfidence(searchStr, closestMatch, content, confidenceThreshold);
           return {
             index: confidence === 0 ? -1 : index,
             confidence: index !== -1 ? confidence : 0,
@@ -420,4 +403,4 @@ export const searchStrategiesService = Alvamind({ name: 'search-strategies.servi
   }));
 
 const self = searchStrategiesService.searchStrategiesService
-export const { findAnchorMatch, findExactMatch, findSimilarityMatch, findLevenshteinMatch } = self
+export const { findAnchorMatch, findExactMatch, findSimilarityMatch, findLevenshteinMatch, getTextFromChanges } = self
