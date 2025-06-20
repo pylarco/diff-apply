@@ -82,48 +82,15 @@ Your search/replace content here
 </apply_diff>`;
       },
 
-      applyDiff: (
-        {
-          originalContent,
-          diffContent,
-          fuzzyThreshold,
-          bufferLines,
-          startLine,
-          endLine,
-        }: ApplyDiffParams
-      ): DiffResult => {
-        const match = diffContent.match(/<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/);
-        if (!match) {
-          return {
-            success: false,
-            error: `Invalid diff format - missing required SEARCH/REPLACE sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n[search content]\\n=======\\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include both SEARCH and REPLACE sections with correct markers`,
-          };
-        }
-
-        if (!startLine || !endLine) {
+      applyDiff: (params: ApplyDiffParams): DiffResult => {
+        if (params.startLine === undefined || params.endLine === undefined) {
           return {
             success: false,
             error: `start_line and end_line are required for this diff strategy.`,
           };
         }
 
-        const [_, searchBody, replaceBody] = match;
-
-        const multiFormatDiff = `<<<<<<< SEARCH
-:start_line: ${startLine}
-:end_line: ${endLine}
--------
-${searchBody}
-=======
-${replaceBody}
->>>>>>> REPLACE`;
-
-        const result = multiSearchReplaceService.multiSearchReplaceService.applyDiff({
-          originalContent,
-          diffContent: multiFormatDiff,
-          fuzzyThreshold,
-          bufferLines,
-        });
+        const result = multiSearchReplaceService.multiSearchReplaceService.applyDiff(params);
 
         // The multi-search-replace service returns a result that may contain failParts
         // for each block. Since this strategy only ever has one block, we can simplify

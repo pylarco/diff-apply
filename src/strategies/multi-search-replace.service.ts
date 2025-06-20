@@ -6,7 +6,7 @@ import { textService } from "../utils/extract-text.service";
 
 interface MultiSearchReplaceService {
   multiSearchReplaceService: {
-    getSimilarity(original: string, search: string): number;
+    getSimilarity(original: string, search:string): number;
     getToolDescription(args: { cwd: string; toolOptions?: { [key: string]: string } }): string;
     applyDiff(params: ApplyDiffParams): DiffResult;
   };
@@ -141,34 +141,56 @@ Only use a single line of '=======' between search and replacement content, beca
             diffContent,
             fuzzyThreshold = 1.0,
             bufferLines = BUFFER_LINES,
+            startLine: paramStartLine,
+            endLine: paramEndLine,
           }: ApplyDiffParams
         ): DiffResult => {
-          let matches = [
-            ...diffContent.matchAll(
-              /<<<<<<< SEARCH\n(:start_line:\s*(\d+)\n){0,1}(:end_line:\s*(\d+)\n){0,1}(-------\n){0,1}([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/g,
-            ),
-          ];
+          let replacements;
+          const initialResultLines = originalContent.split(/\r?\n/);
 
-          if (matches.length === 0) {
-            return {
-              success: false,
-              error: `Invalid diff format - missing required sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n:start_line: start line\\n:end_line: end line\\n-------\\n[search content]\\n=======\\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include start_line/end_line/SEARCH/REPLACE sections with correct markers`,
-            };
+          if (paramStartLine !== undefined && paramEndLine !== undefined) {
+            // Mode: single search/replace from search-replace.service
+            const match = diffContent.match(/<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/);
+            if (!match) {
+              return {
+                success: false,
+                error: `Invalid diff format - missing required SEARCH/REPLACE sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n[search content]\\n=======\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include both SEARCH and REPLACE sections with correct markers`,
+              };
+            }
+            const [_, searchBody, replaceBody] = match;
+            replacements = [{
+              startLine: paramStartLine,
+              endLine: paramEndLine,
+              searchContent: searchBody,
+              replaceContent: replaceBody,
+            }];
+          } else {
+            // Mode: multi search/replace
+            const matches = [...diffContent.matchAll(
+              /<<<<<<< SEARCH\n(:start_line:\s*(\d+)\n){0,1}(:end_line:\s*(\d+)\n){0,1}(-------\n){0,1}([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/g,
+            )];
+
+            if (matches.length === 0) {
+              return {
+                success: false,
+                error: `Invalid diff format - missing required sections\n\nDebug Info:\n- Expected Format: <<<<<<< SEARCH\\n:start_line: start line\\n:end_line: end line\\n-------\\n[search content]\\n=======\\n[replace content]\\n>>>>>>> REPLACE\n- Tip: Make sure to include start_line/end_line/SEARCH/REPLACE sections with correct markers`,
+              };
+            }
+            replacements = matches
+              .map((match) => ({
+                startLine: Number(match[2] ?? 0),
+                endLine: Number(match[4] ?? initialResultLines.length),
+                searchContent: match[6],
+                replaceContent: match[7],
+              }))
+              .sort((a, b) => a.startLine - b.startLine);
           }
 
           const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n";
-          let resultLines = originalContent.split(/\r?\n/);
+          let resultLines = [...initialResultLines];
           let delta = 0;
           let diffResults: DiffResult[] = [];
           let appliedCount = 0;
-          const replacements = matches
-            .map((match) => ({
-              startLine: Number(match[2] ?? 0),
-              endLine: Number(match[4] ?? resultLines.length),
-              searchContent: match[6],
-              replaceContent: match[7],
-            }))
-            .sort((a, b) => a.startLine - b.startLine);
 
           for (let { searchContent, replaceContent, startLine, endLine } of replacements) {
             startLine += startLine === 0 ? 0 : delta;
@@ -324,7 +346,7 @@ Only use a single line of '=======' between search and replacement content, beca
             appliedCount++;
           }
           const finalContent = resultLines.join(lineEnding);
-          if (appliedCount === 0) {
+          if (appliedCount === 0 && diffResults.length > 0) {
             return {
               success: false,
               failParts: diffResults,
@@ -333,7 +355,7 @@ Only use a single line of '=======' between search and replacement content, beca
           return {
             success: true,
             content: finalContent,
-            failParts: diffResults,
+            failParts: diffResults.length > 0 ? diffResults : undefined,
           };
         },
       }
