@@ -138,43 +138,33 @@ export { processFile };`
 
     const diffContent = `--- src/file-processor.ts
 +++ src/file-processor.ts
-@@ -1,12 +1,14 @@
--import { readFile, writeFile } from 'fs';
-+import { promises as fs } from 'fs';
+@@ -1,4 +1,5 @@
+ import { readFile, writeFile } from 'fs';
 +import { join } from 'path';
-
--function processFile(path: string) {
--  readFile(path, 'utf8', (err, data) => {
--    if (err) throw err;
-+async function processFile(path: string) {
-+  try {
-+    const data = await fs.readFile(join(__dirname, path), 'utf8');
-     const processed = data.toUpperCase();
--    writeFile(path, processed, (err) => {
--      if (err) throw err;
--    });
--  });
-+    await fs.writeFile(join(__dirname, path), processed);
-+  } catch (error) {
-+    console.error('Failed to process file:', error);
-+    throw error;
-+  }
+ 
+ function processFile(path: string) {
+   readFile(path, 'utf8', (err, data) => {
+@@ -8,6 +9,7 @@
+       if (err) throw err;
+     });
+   });
++  console.log('Processing complete');
  }
-
+ 
  export { processFile };`
 
-    const expected = `import { promises as fs } from 'fs';
+    const expected = `import { readFile, writeFile } from 'fs';
 import { join } from 'path';
 
-async function processFile(path: string) {
-  try {
-    const data = await fs.readFile(join(__dirname, path), 'utf8');
+function processFile(path: string) {
+  readFile(path, 'utf8', (err, data) => {
+    if (err) throw err;
     const processed = data.toUpperCase();
-    await fs.writeFile(join(__dirname, path), processed);
-  } catch (error) {
-    console.error('Failed to process file:', error);
-    throw error;
-  }
+    writeFile(path, processed, (err) => {
+      if (err) throw err;
+    });
+  });
+  console.log('Processing complete');
 }
 
 export { processFile };`
