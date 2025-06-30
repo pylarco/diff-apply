@@ -1,0 +1,11 @@
+{
+  "projectId": "diff-apply",
+  "logLevel": "info",
+  "clipboardPollInterval": 2000,
+  "approval": "yes",
+  "approvalOnErrorCount": 0,
+  "linter": "bun tsc --noEmit",
+  "preCommand": "",
+  "postCommand": "",
+  "preferredStrategy": "auto"
+}
